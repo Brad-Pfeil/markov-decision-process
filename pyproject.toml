@@ -1,0 +1,41 @@
+[project]
+name = "markov-decision-process"
+version = "1.0.0-a0"
+description = "Library for solving time-augmented markov decision processes."
+readme = "README.md"
+authors = [
+    { email = "robert.garrard@aurizn.co" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.2.3",
+    "pandas>=2.2.3",
+    "pymdptoolbox>=4.0b3",
+    "rich>=13.9.4",
+    "scikit-learn>=1.6.1",
+    "scipy>=1.15.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.29.5",
+    "matplotlib>=3.10.1",
+    "seaborn>=0.13.2",
+]
+test = [
+    "pytest>=8.3.5",
+]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests",
+]
+python_files = ["test.py"]
+pythonpath = ["src/"]
+
+[tool.ruff]
+line-length = 79
