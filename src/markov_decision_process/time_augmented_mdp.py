@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from typing import Any
+from typing import Any, Callable
 
 from scipy.sparse import csr_matrix
 
@@ -31,6 +31,7 @@ class TimeAugmentedMDP:
     """
 
     def __init__(self):
+        
         self.transitions: list[csr_matrix] = []
         self.rewards: list[csr_matrix] = []
 
@@ -47,9 +48,6 @@ class TimeAugmentedMDP:
         assert hasattr(self, "S"), "State space must be defined"
         assert hasattr(self, "A"), "Action space must be defined"
         assert hasattr(self, "T"), "Time space must be defined"
-        assert hasattr(self, "transition"), (
-            "Transition function must be defined"
-        )
         assert hasattr(self, "reward"), "Reward function must be defined"
 
         assert len(self.S) > 0, "State space must have at least one element"
@@ -86,6 +84,12 @@ class TimeAugmentedMDP:
         self.T.append(max(self.T) + 1)
 
         self.S_augmented = [(s, t) for s, t in product(self.S, self.T)]
+
+        # We need these for filling in the transition and reward matrices.
+        self.augmented_state_to_index = {
+            state_tuple: idx
+            for idx, state_tuple in enumerate(self.S_augmented)
+        }
 
         logger.info("State space augmented with time")
 
@@ -171,6 +175,74 @@ class TimeAugmentedMDP:
         )
 
         return None
+
+    def _build_matrix(
+        self,
+        df: pd.DataFrame,
+    ) -> csr_matrix:
+        """
+        Given a data frame with columns s_prime, s, t, t_prime, probability,
+        and reward, build a transition or reward matrix.
+
+        Parameters:
+        -----------
+        df: pd.DataFrame
+            A data frame with columns s_prime, s, t, t_prime, probability, and
+            reward.
+
+        Returns:
+        --------
+        csr_matrix:
+            A sparse matrix representing the transition or reward matrix.
+        """
+
+        # Each row has s_prime, s, t, t_prime. Add two new columnns,
+        # s_augmented_index and s_prime_augmented_index. These are the indices
+        # of the augmented state space for tuples (s,t) and (s_prime, t_prime).
+        
+
+        # Create new columns by applying the mapping
+        df.loc[:, "s_augmented_index"] = df.apply(
+            lambda row: self.augmented_state_to_index.get((row["s"], row["t"]), -1),
+            axis=1,
+        )
+        df.loc[:, "s_prime_augmented_index"] = df.apply(
+            lambda row: self.augmented_state_to_index.get(
+                (row["s_prime"], row["t_prime"]), -1
+            ),
+            axis=1,
+        )
+
+        # Create a sparse matrix with dimension len(S_augmented) x
+        # len(S_augmented). Note that we need the indices in S_augmented
+        # corresponding to (s, t) and (s_prime, t_prime).
+        # Create a column called 'index' for what the index of (s,t) is.
+
+        P = csr_matrix(
+            (
+                df["probability"],
+                (
+                    df["s_augmented_index"],
+                    df["s_prime_augmented_index"],
+                ),
+            ),
+            shape=(len(self.S_augmented), len(self.S_augmented)),
+            dtype=float,
+        )
+
+        R = csr_matrix(
+            (
+                df["reward"],
+                (
+                    df["s_augmented_index"],
+                    df["s_prime_augmented_index"],
+                ),
+            ),
+            shape=(len(self.S_augmented), len(self.S_augmented)),
+            dtype=float,
+        )
+
+        return P, R
 
     def build_matrices(self):
         """
@@ -352,6 +424,64 @@ class TimeAugmentedMDP:
         self.create_data_frame()
         self.compute_transitions_and_rewards_vectorized()
         self.build_matrices()
+        self._solver()
+
+        return None
+    
+    def solve_model(self, model):
+        """
+        Use a model object to solve. 
+        This object should have a .predict_proba(df) method.
+        """
+
+        self.create_data_frame()
+        
+        # To preserve memory, remove the s_prime column and drop duplicates
+        self.data = self.data.drop(columns=['s_prime']).drop_duplicates()
+
+        transitions = []
+        rewards = []
+        for a in self.A:
+            # Filter down to the subset of df with action a
+            df_a = self.data.query("a == @a").copy()
+
+            assert len(df_a) > 0, f"No data for action {a}"
+
+            X = df_a[model.feature_names_]
+            probabilities = model.predict_proba(X)
+
+            # Round the probabilities to 4 decimal places
+            probabilities = np.round(probabilities, 4)
+
+            # Add a column called s_prime
+            df_a['s_prime'] = [self.S] * len(df_a)
+
+            # Add the probabilities
+            df_a['probability'] = probabilities.tolist()
+
+            # Now we need to explode the probability column
+            df_a = df_a.explode(['probability', 's_prime'])
+
+            # Now filter out any rows where probability is within 1e-4 of 0
+            df_a = df_a.query("probability > 1e-4")
+
+            # Compute reward
+            df_a.loc[:, 'reward'] = self.reward(df_a['s_prime'], df_a['s'], df_a['t'], df_a['a'])
+
+            # Contruct the transition and reward matrices
+            P, R = self._build_matrix(df_a)
+
+            # Normalize these matrices
+            P = preprocessing.normalize(P, norm='l1', axis=1)
+            
+            transitions.append(P)
+            rewards.append(R)
+
+        # Set the transitions and rewards attributes
+        self.transitions = transitions
+        self.rewards = rewards
+
+        # Solve the MDP
         self._solver()
 
         return None
