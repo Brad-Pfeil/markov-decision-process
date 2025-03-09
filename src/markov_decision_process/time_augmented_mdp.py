@@ -469,16 +469,17 @@ class TimeAugmentedMDP:
                 # Use the apply method to apply the transition and reward
                 # functions
                 # TODO: How can we do this without a collect operation?
-                df_a = df_a.with_columns(
-                    [
-                        self.transition_function(
-                            df_a["s_prime"], df_a["s"], df_a["a"], df_a["t"]
-                        ).alias("probability"),
-                        self.reward_function(
-                            df_a["s_prime"], df_a["s"], df_a["a"], df_a["t"]
-                        ).alias("reward"),
-                    ]
+                df_a = df_a.collect().to_pandas()
+
+                df_a["probability"] = self.transition_function(
+                    df_a["s_prime"], df_a["s"], df_a["a"], df_a["t"]
                 )
+
+                df_a["reward"] = self.reward_function(
+                    df_a["s_prime"], df_a["s"], df_a["a"], df_a["t"]
+                )
+
+                df_a = pl.DataFrame(df_a).lazy()
 
             # -----------------------------------------------------------------
             # Unclear if this works until tested
