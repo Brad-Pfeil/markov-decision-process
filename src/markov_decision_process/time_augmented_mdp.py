@@ -1,5 +1,6 @@
 import numpy as np
 import polars as pl
+import pandas as pd
 import os
 
 from typing import Any, Callable, List, Tuple, Literal
@@ -146,10 +147,10 @@ class TimeAugmentedMDP:
 
     def __is_func_vectorized(self, func):
         # Create test series inputs
-        s_prime = pl.Series([1, 2, 3])
-        s = pl.Series([1, 2, 3])
-        a = pl.Series([1, 2, 3])
-        t = pl.Series([1, 2, 3])
+        s_prime = pd.Series([1, 2, 3])
+        s = pd.Series([1, 2, 3])
+        a = pd.Series([1, 2, 3])
+        t = pd.Series([1, 2, 3])
         
         
         try:
@@ -157,7 +158,7 @@ class TimeAugmentedMDP:
             result = func(s_prime, s, a, t)
             
             # Check if the result is a pl.Series
-            if isinstance(result, pl.Series):
+            if isinstance(result, pd.Series):
                 return True
             else:
                 return False
