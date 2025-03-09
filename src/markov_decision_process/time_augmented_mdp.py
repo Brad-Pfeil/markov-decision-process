@@ -293,7 +293,7 @@ class TimeAugmentedMDP:
         # If force_overwrite is True, delete the directory
         # and recreate it.
         if self.force_overwrite:
-            logger.warn(
+            logger.warning(
                 "Force overwrite active. Deleting existing directory and recreating..."
             )
             os.system(f"rm -rf {state_space_path}")
