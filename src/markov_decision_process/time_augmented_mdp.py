@@ -27,8 +27,8 @@ class TimeAugmentedMDP:
 
     def __init__(
         self,
-        states: List[int] | List[float] | List[str],
-        actions: List[int] | List[float] | List[str],
+        states: List[int] | List[float] | List[str] | List[Tuple],
+        actions: List[int] | List[float] | List[str] | List[Tuple],
         times: List[int],
         reward_function: Callable,
         transition_function: Callable | None = None,
@@ -46,7 +46,7 @@ class TimeAugmentedMDP:
         for key, value in locals().items():
             if key != 'self':
                 # Set a copy, otherwise we'll mutate the original
-                setattr(self, key, copy.deepcopy(value))
+                setattr(self, key, copy.deepcopy(value))  
 
         # Transitions and rewards will be constructed by methods below
         self.transition_matrices: List[csr_matrix] = []
@@ -95,16 +95,16 @@ class TimeAugmentedMDP:
         if not all(isinstance(state, type(self.states[0])) for state in self.states):
             raise ValueError('States must be a list where all elements are of the same type')
         # States must be integers, floats, or strings
-        if not all(isinstance(state, (int, float, str)) for state in self.states):
-            raise ValueError('States must be integers, floats, or strings')
+        if not all(isinstance(state, (int, float, str, tuple)) for state in self.states):
+            raise ValueError('States must be integers, floats, strings, or tuples')
         
         # Same for actions
         if not self.actions:
             raise ValueError('Actions must be non-empty')
         if not all(isinstance(action, type(self.actions[0])) for action in self.actions):
             raise ValueError('Actions must be a list where all elements are of the same type')
-        if not all(isinstance(action, (int, float, str)) for action in self.actions):
-            raise ValueError('Actions must be integers, floats, or strings')
+        if not all(isinstance(action, (int, float, str, tuple)) for action in self.actions):
+            raise ValueError('Actions must be integers, floats, strings, or tuples')
         
         # Times must be integers
         if not all(isinstance(time, int) for time in self.times):
@@ -257,6 +257,7 @@ class TimeAugmentedMDP:
         except:
             logger.info("No data found on disk. Generating...")
 
+        
         # Create the data
 
         s_prime = pl.DataFrame({'s_prime': self.states})
