@@ -102,11 +102,11 @@ class TimeAugmentedMDP:
             )
         # States must be integers, floats, or strings
         if not all(
-            isinstance(state, (int, float, str, tuple))
+            isinstance(state, (int, float, str))
             for state in self.states
         ):
             raise ValueError(
-                "States must be integers, floats, strings, or tuples"
+                "States must be integers, floats, strings"
             )
 
         # Same for actions
@@ -120,11 +120,11 @@ class TimeAugmentedMDP:
                 "Actions must be a list where all elements are of the same type"
             )
         if not all(
-            isinstance(action, (int, float, str, tuple))
+            isinstance(action, (int, float, str))
             for action in self.actions
         ):
             raise ValueError(
-                "Actions must be integers, floats, strings, or tuples"
+                "Actions must be integers, floats, strings"
             )
 
         # Times must be integers
@@ -394,6 +394,7 @@ class TimeAugmentedMDP:
         # len(S_augmented). Note that we need the indices in S_augmented
         # corresponding to (s, t) and (s_prime, t_prime).
         # Create a column called 'index' for what the index of (s,t) is.
+        df = df.collect()
 
         P = csr_matrix(
             (
@@ -449,7 +450,7 @@ class TimeAugmentedMDP:
                         .map_elements(
                             lambda row: self.transition_function(
                                 row["s_prime"], row["s"], row["a"], row["t"]
-                            ),
+                        ),
                             return_dtype=pl.Float32,
                         )
                         .alias("probability"),
@@ -464,13 +465,10 @@ class TimeAugmentedMDP:
                     ]
                 )
 
-                df_a = df_a.collect()
-
             if self.mode == "vectorized":
                 # Use the apply method to apply the transition and reward
                 # functions
                 # TODO: How can we do this without a collect operation?
-                df_a = df_a.collect()
                 df_a = df_a.with_columns(
                     [
                         self.transition_function(
@@ -485,7 +483,6 @@ class TimeAugmentedMDP:
             # -----------------------------------------------------------------
             # Unclear if this works until tested
             if self.mode == "model":
-                df_a = df_a.collect()
 
                 X = df_a[self.model.feature_names_]
                 probabilities = self.model.predict_proba(X)
@@ -510,7 +507,9 @@ class TimeAugmentedMDP:
 
             # -----------------------------------------------------------------
             # Add a columns t_prime which is t + 1
-            df_a = df_a.with_columns([pl.lit(df_a["t"] + 1).alias("t_prime")])
+            df_a = df_a.with_columns([
+                (pl.col("t") + 1).alias("t_prime")
+            ])
 
             # Only retain columns where t_prime <= max(times)
             df_a = df_a.filter(pl.col("t_prime") <= max(self.times))
