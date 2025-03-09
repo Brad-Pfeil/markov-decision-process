@@ -31,7 +31,6 @@ class TimeAugmentedMDP:
     """
 
     def __init__(self):
-        
         self.transitions: list[csr_matrix] = []
         self.rewards: list[csr_matrix] = []
 
@@ -199,11 +198,12 @@ class TimeAugmentedMDP:
         # Each row has s_prime, s, t, t_prime. Add two new columnns,
         # s_augmented_index and s_prime_augmented_index. These are the indices
         # of the augmented state space for tuples (s,t) and (s_prime, t_prime).
-        
 
         # Create new columns by applying the mapping
         df.loc[:, "s_augmented_index"] = df.apply(
-            lambda row: self.augmented_state_to_index.get((row["s"], row["t"]), -1),
+            lambda row: self.augmented_state_to_index.get(
+                (row["s"], row["t"]), -1
+            ),
             axis=1,
         )
         df.loc[:, "s_prime_augmented_index"] = df.apply(
@@ -427,17 +427,17 @@ class TimeAugmentedMDP:
         self._solver()
 
         return None
-    
+
     def solve_model(self, model):
         """
-        Use a model object to solve. 
+        Use a model object to solve.
         This object should have a .predict_proba(df) method.
         """
 
         self.create_data_frame()
-        
+
         # To preserve memory, remove the s_prime column and drop duplicates
-        self.data = self.data.drop(columns=['s_prime']).drop_duplicates()
+        self.data = self.data.drop(columns=["s_prime"]).drop_duplicates()
 
         transitions = []
         rewards = []
@@ -454,26 +454,28 @@ class TimeAugmentedMDP:
             probabilities = np.round(probabilities, 4)
 
             # Add a column called s_prime
-            df_a['s_prime'] = [self.S] * len(df_a)
+            df_a["s_prime"] = [self.S] * len(df_a)
 
             # Add the probabilities
-            df_a['probability'] = probabilities.tolist()
+            df_a["probability"] = probabilities.tolist()
 
             # Now we need to explode the probability column
-            df_a = df_a.explode(['probability', 's_prime'])
+            df_a = df_a.explode(["probability", "s_prime"])
 
             # Now filter out any rows where probability is within 1e-4 of 0
             df_a = df_a.query("probability > 1e-4")
 
             # Compute reward
-            df_a.loc[:, 'reward'] = self.reward(df_a['s_prime'], df_a['s'], df_a['t'], df_a['a'])
+            df_a.loc[:, "reward"] = self.reward(
+                df_a["s_prime"], df_a["s"], df_a["t"], df_a["a"]
+            )
 
             # Contruct the transition and reward matrices
             P, R = self._build_matrix(df_a)
 
             # Normalize these matrices
-            P = preprocessing.normalize(P, norm='l1', axis=1)
-            
+            P = preprocessing.normalize(P, norm="l1", axis=1)
+
             transitions.append(P)
             rewards.append(R)
 

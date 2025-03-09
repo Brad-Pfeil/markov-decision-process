@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 
 # -----------------------------------------------------------------------------
 
-class TimeAugmentedMDP:
 
+class TimeAugmentedMDP:
     def __init__(
         self,
         states: List[int] | List[float] | List[str] | List[Tuple],
@@ -34,20 +34,19 @@ class TimeAugmentedMDP:
         reward_function: Callable,
         transition_function: Callable | None = None,
         discount_factor: float = 1,
-        mode: Literal['flexible', 'vectorized', 'model'] | None = None,
+        mode: Literal["flexible", "vectorized", "model"] | None = None,
         model: Callable | None = None,
         state_space_data_path: str | None = None,
         force_overwrite: bool = False,
     ):
-
-        #---------------------------------------------------------------------
+        # ---------------------------------------------------------------------
         # Assignment and sanity checks
 
         # Assign these inputs to self
         for key, value in locals().items():
-            if key != 'self':
+            if key != "self":
                 # Set a copy, otherwise we'll mutate the original
-                setattr(self, key, copy.deepcopy(value))  
+                setattr(self, key, copy.deepcopy(value))
 
         # Transitions and rewards will be constructed by methods below
         self.transition_matrices: List[csr_matrix] = []
@@ -57,92 +56,136 @@ class TimeAugmentedMDP:
         # Augmented states
         self.states_augmented: List[Tuple] = []
         self.augmented_state_to_index: dict = {}
-       
+
         # If model is passed, set the model to be model
         if self.model is not None:
             logger.info("Model provided. Setting mode to 'model'")
-            self.mode = 'model'
-        
+            self.mode = "model"
+
         # Checks on inputs
         self.__check_inputs()
 
         # If the mode is not set, try to infer it.
         if self.mode is None:
-            logger.info('Mode not set. Inferring mode...')
+            logger.info("Mode not set. Inferring mode...")
             self.__infer_mode()
 
-        #---------------------------------------------------------------------
+        # ---------------------------------------------------------------------
         # Augmentation
-    
-        # This mutates the times list to add an additional dummy time,
-        # creates a list called states_augmented, and a dictionary called
-        # augmented_state_to_index.
-        self.__augment_state_space_with_time()
 
-        #---------------------------------------------------------------------
+        # Add a dummy time period to the time space
+        self.times.append(max(self.times) + 1)
+
+        # Create an list of augmented states that is a tuple of the
+        # state and time period. Create an index mapping for these states.
+        self.states_augmented, self.augmented_state_to_index = (
+            self.__augment_state_space_with_time()
+        )
+
+        # ---------------------------------------------------------------------
 
         # Generate the state space data
         self.state_space_data = self.__generate_state_space_data()
 
-
         return None
 
     def __check_inputs(self):
-
         # States must be non-empty
         if not self.states:
-            raise ValueError('States must be non-empty')
+            raise ValueError("States must be non-empty")
         # States must be a list where all elements are of the same type
-        if not all(isinstance(state, type(self.states[0])) for state in self.states):
-            raise ValueError('States must be a list where all elements are of the same type')
+        if not all(
+            isinstance(state, type(self.states[0])) for state in self.states
+        ):
+            raise ValueError(
+                "States must be a list where all elements are of the same type"
+            )
         # States must be integers, floats, or strings
-        if not all(isinstance(state, (int, float, str, tuple)) for state in self.states):
-            raise ValueError('States must be integers, floats, strings, or tuples')
-        
+        if not all(
+            isinstance(state, (int, float, str, tuple))
+            for state in self.states
+        ):
+            raise ValueError(
+                "States must be integers, floats, strings, or tuples"
+            )
+
         # Same for actions
         if not self.actions:
-            raise ValueError('Actions must be non-empty')
-        if not all(isinstance(action, type(self.actions[0])) for action in self.actions):
-            raise ValueError('Actions must be a list where all elements are of the same type')
-        if not all(isinstance(action, (int, float, str, tuple)) for action in self.actions):
-            raise ValueError('Actions must be integers, floats, strings, or tuples')
-        
+            raise ValueError("Actions must be non-empty")
+        if not all(
+            isinstance(action, type(self.actions[0]))
+            for action in self.actions
+        ):
+            raise ValueError(
+                "Actions must be a list where all elements are of the same type"
+            )
+        if not all(
+            isinstance(action, (int, float, str, tuple))
+            for action in self.actions
+        ):
+            raise ValueError(
+                "Actions must be integers, floats, strings, or tuples"
+            )
+
         # Times must be integers
         if not all(isinstance(time, int) for time in self.times):
-            raise ValueError('Times must be integers')
+            raise ValueError("Times must be integers")
         # Times must be non-empty
         if not self.times:
-            raise ValueError('Times must be non-empty')
+            raise ValueError("Times must be non-empty")
         # Times must be consecutive
-        if not all(self.times[i] == self.times[i-1] + 1 for i in range(1, len(self.times))):
-            raise ValueError('Times must be consecutive and increasing')
-        
+        if not all(
+            self.times[i] == self.times[i - 1] + 1
+            for i in range(1, len(self.times))
+        ):
+            raise ValueError("Times must be consecutive and increasing")
+
         # Mode must be one of the allowed values
         if self.mode is not None:
-            if self.mode not in ['flexible', 'vectorized', 'model']:
-                raise ValueError('Mode must be one of "flexible", "vectorized", or "model"')
+            if self.mode not in ["flexible", "vectorized", "model"]:
+                raise ValueError(
+                    'Mode must be one of "flexible", "vectorized", or "model"'
+                )
         # If mode is 'model', model must be a function
-        if self.mode == 'model' and not callable(self.model):
+        if self.mode == "model" and not callable(self.model):
             raise ValueError('If mode is "model", model must be a function')
         # If mode is flexible or vectorized, a transition function must be provided
-        if self.mode in ['flexible', 'vectorized'] and not callable(self.transition_function):
-            raise ValueError('If mode is "flexible" or "vectorized", a transition function must be provided')
+        if self.mode in ["flexible", "vectorized"] and not callable(
+            self.transition_function
+        ):
+            raise ValueError(
+                'If mode is "flexible" or "vectorized", a transition function must be provided'
+            )
         if self.mode is None and not callable(self.transition_function):
-            raise ValueError('Either a model or a transition function must be provided')
-        
+            raise ValueError(
+                "Either a model or a transition function must be provided"
+            )
+
         # Check that reward function has correct arguments
-        reward_signature = list(inspect.signature(self.reward_function).parameters.keys())
-        if reward_signature != ['s_prime', 's', 'a', 't']:
-            logger.warning(f'Reward function currently has arguments {reward_signature}. Should be (s_prime, s, a, t)')
-            raise ValueError('Reward function should have arguments (s_prime, s, a, t)')
+        reward_signature = list(
+            inspect.signature(self.reward_function).parameters.keys()
+        )
+        if reward_signature != ["s_prime", "s", "a", "t"]:
+            logger.warning(
+                f"Reward function currently has arguments {reward_signature}. Should be (s_prime, s, a, t)"
+            )
+            raise ValueError(
+                "Reward function should have arguments (s_prime, s, a, t)"
+            )
 
         # If the transition_function is provided, check that it has the correct arguments
         if self.transition_function is not None:
-            transition_signature = list(inspect.signature(self.transition_function).parameters.keys())
-            if transition_signature != ['s_prime', 's', 'a', 't']:
-                logger.warning(f'Transition function currently has arguments {transition_signature}. Should be (s_prime, s, a, t)')
-                raise ValueError('Transition function should have arguments (s_prime, s, a, t)')
-        
+            transition_signature = list(
+                inspect.signature(self.transition_function).parameters.keys()
+            )
+            if transition_signature != ["s_prime", "s", "a", "t"]:
+                logger.warning(
+                    f"Transition function currently has arguments {transition_signature}. Should be (s_prime, s, a, t)"
+                )
+                raise ValueError(
+                    "Transition function should have arguments (s_prime, s, a, t)"
+                )
+
         return None
 
     def __is_func_vectorized(self, func):
@@ -151,12 +194,11 @@ class TimeAugmentedMDP:
         s = pd.Series([1, 2, 3])
         a = pd.Series([1, 2, 3])
         t = pd.Series([1, 2, 3])
-        
-        
+
         try:
             # Try to apply the function to the series inputs
             result = func(s_prime, s, a, t)
-            
+
             # Check if the result is a pl.Series
             if isinstance(result, pd.Series):
                 return True
@@ -165,51 +207,55 @@ class TimeAugmentedMDP:
         except Exception as e:
             # If an exception occurs, it's likely not vectorized
             return False
-        
+
     def __infer_mode(self):
         """
         Checks if the reward and transition functions are vectorized. If they
         are, sets mode to 'vectorized'. Otherwise, sets mode to 'flexible'.
         """
-        
-        # Is reward vectorized 
+
+        # Is reward vectorized
         reward_vectorized = self.__is_func_vectorized(self.reward_function)
-        logger.info(f'Reward function is vectorized: {reward_vectorized}')
+        logger.info(f"Reward function is vectorized: {reward_vectorized}")
 
         # Only inferring mode if we don't already have a model passed.
         # So transition function must exist.
-        transition_vectorized = self.__is_func_vectorized(self.transition_function)
-        logger.info(f'Transition function is vectorized: {transition_vectorized}')
+        transition_vectorized = self.__is_func_vectorized(
+            self.transition_function
+        )
+        logger.info(
+            f"Transition function is vectorized: {transition_vectorized}"
+        )
 
         if reward_vectorized and transition_vectorized:
-            logger.info('Reward and transition functions are vectorized. Setting mode to "vectorized"')
-            self.mode = 'vectorized'
+            logger.info(
+                'Reward and transition functions are vectorized. Setting mode to "vectorized"'
+            )
+            self.mode = "vectorized"
         else:
-            logger.info('Reward and transition functions are not vectorized. Setting mode to "flexible"')
-            self.mode = 'flexible'
-        
+            logger.info(
+                'Reward and transition functions are not vectorized. Setting mode to "flexible"'
+            )
+            self.mode = "flexible"
+
         return None
-    
 
     def __augment_state_space_with_time(self) -> None:
-        """
-        """
+        """ """
 
-        # Add a dummy time period to the time space
-        self.times.append(max(self.times) + 1)
-
-        self.states_augmented = [(s, t) for s, t in product(self.states, self.times)]
+        states_augmented = [
+            (s, t) for s, t in product(self.states, self.times)
+        ]
 
         # We need these for filling in the transition and reward matrices.
-        self.augmented_state_to_index = {
+        augmented_state_to_index = {
             state_tuple: idx
             for idx, state_tuple in enumerate(self.states_augmented)
         }
 
         logger.info("State space augmented with time")
 
-        return None
-    
+        return states_augmented, augmented_state_to_index
 
     def __generate_state_space_data(self):
         """
@@ -235,22 +281,26 @@ class TimeAugmentedMDP:
         if self.state_space_data_path is not None:
             state_space_path = self.state_space_data_path
         else:
-            state_space_path  = '/tmp/state_space_data/'
+            state_space_path = "/tmp/state_space_data/"
             logger.info("No path provided. Saving to /tmp/state_space_data/")
 
             # Check if the directory exists
             if os.path.exists(state_space_path) and not self.force_overwrite:
-                raise ValueError(f"Directory {state_space_path} already exists. Please provide a new path or delete the existing directory.")
+                raise ValueError(
+                    f"Directory {state_space_path} already exists. Please provide a new path or delete the existing directory."
+                )
 
         # If force_overwrite is True, delete the directory
         # and recreate it.
         if self.force_overwrite:
-            logger.warn("Force overwrite active. Deleting existing directory and recreating...")
+            logger.warn(
+                "Force overwrite active. Deleting existing directory and recreating..."
+            )
             os.system(f"rm -rf {state_space_path}")
-            os.makedirs(state_space_path, exist_ok=True)    
-            
+            os.makedirs(state_space_path, exist_ok=True)
+
         # Check if the data already exists on disk
-        try: 
+        try:
             data = pl.scan_parquet(state_space_path)
             data.head().collect()
             logger.info("Data found on disk. Loading in...")
@@ -258,35 +308,29 @@ class TimeAugmentedMDP:
         except:
             logger.info("No data found on disk. Generating...")
 
-        
         # Create the data
 
-        s_prime = pl.DataFrame({'s_prime': self.states})
-        s = pl.DataFrame({'s': self.states})
-        t = pl.DataFrame({'t': self.times})
+        s_prime = pl.DataFrame({"s_prime": self.states})
+        s = pl.DataFrame({"s": self.states})
+        t = pl.DataFrame({"t": self.times})
 
         # Compute the cross join
-        if self.mode in ['flexible', 'vectorized']:
-            df = (
-                s_prime
-                .join(s, how='cross')
-                .join(t, how='cross')
-            )
-        elif self.mode == 'model':
-            df = s.join(t, how='cross')
+        if self.mode in ["flexible", "vectorized"]:
+            df = s_prime.join(s, how="cross").join(t, how="cross")
+        elif self.mode == "model":
+            df = s.join(t, how="cross")
 
         for action in self.actions:
-
             output_dir = f"{state_space_path}/a={action}"
             output_path = f"{output_dir}/partition.parquet"
             os.makedirs(output_dir, exist_ok=True)
-    
+
             # Add the action to the DataFrame and save to disk partitioned
             # by the action.
             (
-                df
-                .with_columns(pl.lit(action).alias('a'))
-                .write_parquet(output_path)
+                df.with_columns(pl.lit(action).alias("a")).write_parquet(
+                    output_path
+                )
             )
 
         logger.info("State space data generated and saved to disk")
@@ -295,7 +339,7 @@ class TimeAugmentedMDP:
         data = pl.scan_parquet(state_space_path)
 
         return data
-    
+
     def __build_matrix(
         self,
         df: pl.DataFrame,
@@ -319,24 +363,32 @@ class TimeAugmentedMDP:
         # Each row has s_prime, s, t, t_prime. Add two new columnns,
         # s_augmented_index and s_prime_augmented_index. These are the indices
         # of the augmented state space for tuples (s,t) and (s_prime, t_prime).
-        
+
         # Create new columns by applying the mapping
-        df = df.with_columns([
-            pl.struct(["s", "t"])
-            .map_elements(
-                lambda row: self.augmented_state_to_index.get((row["s"], row["t"]), -1),
-                return_dtype=pl.UInt64,
-            )
-            .alias("s_augmented_index")
-        ])
-        df = df.with_columns([
-            pl.struct(["s_prime", "t_prime"])
-            .map_elements(
-                lambda row: self.augmented_state_to_index.get((row["s_prime"], row["t_prime"]), -1),
-                return_dtype=pl.UInt64,
-            )
-            .alias("s_prime_augmented_index")
-        ])
+        df = df.with_columns(
+            [
+                pl.struct(["s", "t"])
+                .map_elements(
+                    lambda row: self.augmented_state_to_index.get(
+                        (row["s"], row["t"]), -1
+                    ),
+                    return_dtype=pl.UInt64,
+                )
+                .alias("s_augmented_index")
+            ]
+        )
+        df = df.with_columns(
+            [
+                pl.struct(["s_prime", "t_prime"])
+                .map_elements(
+                    lambda row: self.augmented_state_to_index.get(
+                        (row["s_prime"], row["t_prime"]), -1
+                    ),
+                    return_dtype=pl.UInt64,
+                )
+                .alias("s_prime_augmented_index")
+            ]
+        )
 
         # Create a sparse matrix with dimension len(S_augmented) x
         # len(S_augmented). Note that we need the indices in S_augmented
@@ -385,39 +437,54 @@ class TimeAugmentedMDP:
         rewards = []
 
         for a in self.actions:
-            
             # Filter down to the subset of df with action a
-            df_a = self.state_space_data.filter(pl.col('a') == a)
+            df_a = self.state_space_data.filter(pl.col("a") == a)
 
-            if self.mode == 'flexible':
+            if self.mode == "flexible":
                 # Use the apply method to apply the transition and reward
                 # functions
-                df_a = df_a.with_columns([
-                    pl.struct('s_prime', 's', 'a', 't').map_elements(
-                        lambda row: self.transition_function(row['s_prime'], row['s'], row['a'], row['t']),
-                        return_dtype=pl.Float32,
-                    ).alias('probability'),
-                    pl.struct('s_prime', 's', 'a', 't').map_elements(
-                        lambda row: self.reward_function(row['s_prime'], row['s'], row['a'], row['t']),
-                        return_dtype=pl.Float32,
-                    ).alias('reward'),                    
-                ])
+                df_a = df_a.with_columns(
+                    [
+                        pl.struct("s_prime", "s", "a", "t")
+                        .map_elements(
+                            lambda row: self.transition_function(
+                                row["s_prime"], row["s"], row["a"], row["t"]
+                            ),
+                            return_dtype=pl.Float32,
+                        )
+                        .alias("probability"),
+                        pl.struct("s_prime", "s", "a", "t")
+                        .map_elements(
+                            lambda row: self.reward_function(
+                                row["s_prime"], row["s"], row["a"], row["t"]
+                            ),
+                            return_dtype=pl.Float32,
+                        )
+                        .alias("reward"),
+                    ]
+                )
 
                 df_a = df_a.collect()
 
-            if self.mode == 'vectorized':
+            if self.mode == "vectorized":
                 # Use the apply method to apply the transition and reward
                 # functions
-                #TODO: How can we do this without a collect operation?
+                # TODO: How can we do this without a collect operation?
                 df_a = df_a.collect()
-                df_a = df_a.with_columns([
-                    self.transition_function(df_a['s_prime'], df_a['s'], df_a['a'], df_a['t']).alias('probability'),
-                    self.reward_function(df_a['s_prime'], df_a['s'], df_a['a'], df_a['t']).alias('reward'),
-                ])
+                df_a = df_a.with_columns(
+                    [
+                        self.transition_function(
+                            df_a["s_prime"], df_a["s"], df_a["a"], df_a["t"]
+                        ).alias("probability"),
+                        self.reward_function(
+                            df_a["s_prime"], df_a["s"], df_a["a"], df_a["t"]
+                        ).alias("reward"),
+                    ]
+                )
 
-            #-----------------------------------------------------------------
+            # -----------------------------------------------------------------
             # Unclear if this works until tested
-            if self.mode == 'model':
+            if self.mode == "model":
                 df_a = df_a.collect()
 
                 X = df_a[self.model.feature_names_]
@@ -425,40 +492,39 @@ class TimeAugmentedMDP:
                 probabilities = np.round(probabilities, 4)
 
                 # Add a column called s_prime
-                df_a['s_prime'] = [self.states] * len(df_a)
+                df_a["s_prime"] = [self.states] * len(df_a)
 
                 # Add the probabilities
-                df_a['probability'] = probabilities.tolist()
+                df_a["probability"] = probabilities.tolist()
 
                 # Now we need to explode the probability column
-                df_a = df_a.explode(['probability', 's_prime'])
+                df_a = df_a.explode(["probability", "s_prime"])
 
                 # Now filter out any rows where probability is within 1e-4 of 0
                 df_a = df_a.query("probability > 1e-4")
 
                 # Compute reward
-                df_a.loc[:, 'reward'] = self.reward(df_a['s_prime'], df_a['s'], df_a['t'], df_a['a'])
+                df_a.loc[:, "reward"] = self.reward(
+                    df_a["s_prime"], df_a["s"], df_a["t"], df_a["a"]
+                )
 
-            #-----------------------------------------------------------------
+            # -----------------------------------------------------------------
             # Add a columns t_prime which is t + 1
-            df_a = df_a.with_columns([
-                pl.lit(df_a['t'] + 1).alias('t_prime')
-            ])
+            df_a = df_a.with_columns([pl.lit(df_a["t"] + 1).alias("t_prime")])
 
             # Only retain columns where t_prime <= max(times)
-            df_a = df_a.filter(pl.col('t_prime') <= max(self.times))
+            df_a = df_a.filter(pl.col("t_prime") <= max(self.times))
 
             # Contruct the transition and reward matrices
             P, R = self.__build_matrix(df_a)
-            
+
             transitions.append(P)
             rewards.append(R)
 
         self.transition_matrices = transitions
         self.reward_matrices = rewards
-        
+
         return None
-                
 
     def _enforce_valid_matrices(self):
         """
@@ -520,7 +586,6 @@ class TimeAugmentedMDP:
         self.reward_matrices = new_rewards
 
         return None
-    
 
     def solve(self):
         self.build_rewards_and_transitions()
@@ -619,7 +684,6 @@ class TimeAugmentedMDP:
         self.value_function = value_dict
 
         return None
-
 
     def get_transition_probabilties(
         self,
