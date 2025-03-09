@@ -250,7 +250,7 @@ class TimeAugmentedMDP:
         # We need these for filling in the transition and reward matrices.
         augmented_state_to_index = {
             state_tuple: idx
-            for idx, state_tuple in enumerate(self.states_augmented)
+            for idx, state_tuple in enumerate(states_augmented)
         }
 
         logger.info("State space augmented with time")
