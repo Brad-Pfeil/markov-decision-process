@@ -870,7 +870,7 @@ class TimeAugmentedMDP:
 
         return None
 
-    def forecast_following_optimal_policy(
+    def forecast(
         self,
         current_state: int | str,
         current_time: int,
@@ -921,37 +921,29 @@ class TimeAugmentedMDP:
 
             for state_ix, action_ix in enumerate(policy):
                 T[state_ix, :] = self.transition_matrices[action_ix][state_ix, :].toarray().flatten()
+                # Make T sparse
+                T = csr_matrix(T)
         else:
-            T = self.transition_matrices[self.actions.index(action)].toarray()
+            T = self.transition_matrices[self.actions.index(action)]
             
 
         # The output is a dictionary where the keys are the future times and 
         # the values are the forecasted states and their probabilities.
-        forecast_dict = {}
-        for i in range(1, n_steps+1):
-            
-            # Raise to the power of n_steps
-            T_n = np.linalg.matrix_power(T, i)
+        
+        # Forecast the future states according to s_transpose * T^n
+        forecast = current_state_vector @ T**n_steps
+        
+        # What are the indices of the states with time index current_time + n_steps?
+        future_states_ix = [
+            k
+            for k, v in enumerate(self.states_augmented)
+            if v[1] == current_time + n_steps
+        ]
 
-            # Forecast the future states according to s_transpose * T^n
-            forecast = current_state_vector @ T_n
+        # Extract the forecast for these states
+        forecast = forecast[0, future_states_ix]
 
-            # What are the indices of the states with time index current_time + n_steps?
-            future_states_ix = [
-                k
-                for k, v in enumerate(self.states_augmented)
-                if v[1] == current_time + i
-            ]
-
-            # Extract the forecast for these states
-            forecast = forecast[0, future_states_ix]
-
-            # Pull out the state labels
-            future_states = [self.states_augmented[ix][0] for ix in future_states_ix]
-
-            # What time does the forecast correspond to?
-            forecast_time = current_time + i
-
-            forecast_dict[forecast_time] = dict(zip(future_states, forecast))
-
-        return forecast_dict
+        # Pull out the state labels
+        future_states = [self.states_augmented[ix][0] for ix in future_states_ix]
+     
+        return future_states, forecast
