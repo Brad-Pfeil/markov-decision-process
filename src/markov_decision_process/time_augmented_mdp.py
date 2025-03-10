@@ -59,6 +59,11 @@ class TimeAugmentedMDP:
         # Value and policy functions
         self.value_function: dict[int, dict[int, float]] | None = None
         self.policy_function: dict[int, dict[int, int]] | None = None
+        
+        # The policy above will be filtered down to a dictionary of 
+        # feasible states and times. This will be the full policy
+        # across augmented states.
+        self.policy_function_augmented = None
 
         # Augmented states
         self.states_augmented: List[Tuple] = []
@@ -624,6 +629,7 @@ class TimeAugmentedMDP:
 
         self.value_function = mdp.V
         self.policy_function = mdp.policy
+        self.policy_function_augmented = mdp.policy
 
         self._extract_feasible_states()
 
@@ -863,3 +869,89 @@ class TimeAugmentedMDP:
         self.policy_monotone = policy_monotone
 
         return None
+
+    def forecast_following_optimal_policy(
+        self,
+        current_state: int | str,
+        current_time: int,
+        n_steps: int,
+        action: int | str = 'optimal',
+    ):
+        """
+        Produce a forceast from the current state and time for the future
+        states.
+        """
+
+        # First check that current_time + n_steps is less than the maximum time
+        assert current_time + n_steps < max(self.times), (
+            "Current time plus n_steps must be less than the maximum time"
+        )
+
+        # CHeck that action is either 'optimal' or a valid action
+        assert action in self.actions or action == 'optimal', (
+            "Action must be either a valid action or 'optimal'"
+        )
+
+        # Find out which of the augmented states correspond to the initial state
+        # and time.
+        current_state_ix = [
+            k
+            for k, v in enumerate(self.states_augmented)
+            if v[0] == current_state and v[1] == current_time
+        ]
+
+        current_state_vector = np.zeros((1, len(self.states_augmented)))
+        current_state_vector[0, current_state_ix] = 1
+
+        # Get the augmented policy function.
+        policy = self.policy_function_augmented
+        
+        # Every column of the policy is identical, so we can just take the first
+        # column.
+        policy = policy[:, 0]
+
+        # Construct a transition matrix where each row is taken from the 
+        # transition matrix of the action from the policy.
+        # That is, if the 0th entry of the policy is 1, we take the 0th
+        # row of the transition matrix for action 1.
+        # The resulting transition matrix is a square matrix of size
+        # len(S_augmented) x len(S_augmented).
+        if action == 'optimal':
+            T = np.zeros((len(self.states_augmented), len(self.states_augmented)))
+
+            for state_ix, action_ix in enumerate(policy):
+                T[state_ix, :] = self.transition_matrices[action_ix][state_ix, :].toarray().flatten()
+        else:
+            T = self.transition_matrices[self.actions.index(action)].toarray()
+            
+
+        # The output is a dictionary where the keys are the future times and 
+        # the values are the forecasted states and their probabilities.
+        forecast_dict = {}
+        for i in range(1, n_steps+1):
+            
+            # Raise to the power of n_steps
+            T_n = np.linalg.matrix_power(T, i)
+
+            # Forecast the future states according to s_transpose * T^n
+            forecast = current_state_vector @ T_n
+
+            # What are the indices of the states with time index current_time + n_steps?
+            future_states_ix = [
+                k
+                for k, v in enumerate(self.states_augmented)
+                if v[1] == current_time + i
+            ]
+
+            # Extract the forecast for these states
+            forecast = forecast[0, future_states_ix]
+
+            # Pull out the state labels
+            future_states = [self.states_augmented[ix][0] for ix in future_states_ix]
+
+            # What time does the forecast correspond to?
+            forecast_time = current_time + i
+
+            forecast_dict[forecast_time] = dict(zip(future_states, forecast))
+
+        return forecast_dict
