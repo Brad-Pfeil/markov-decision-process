@@ -8,6 +8,7 @@ from typing import Any, Callable, List, Tuple, Literal
 from scipy.sparse import csr_matrix
 
 from sklearn import preprocessing
+from sklearn.isotonic import IsotonicRegression
 
 from itertools import product
 
@@ -15,6 +16,8 @@ from mdptoolbox.mdp import FiniteHorizon
 
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+import time
 
 import inspect
 import copy
@@ -53,6 +56,10 @@ class TimeAugmentedMDP:
         self.reward_matrices: List[csr_matrix] = []
         self.INFEASIBLE = -1e8
 
+        # Value and policy functions
+        self.value_function: dict[int, dict[int, float]] | None = None
+        self.policy_function: dict[int, dict[int, int]] | None = None
+
         # Augmented states
         self.states_augmented: List[Tuple] = []
         self.augmented_state_to_index: dict = {}
@@ -83,7 +90,7 @@ class TimeAugmentedMDP:
         )
 
         # ---------------------------------------------------------------------
-
+        
         # Generate the state space data
         self.state_space_data = self.__generate_state_space_data()
 
@@ -146,9 +153,6 @@ class TimeAugmentedMDP:
                 raise ValueError(
                     'Mode must be one of "flexible", "vectorized", or "model"'
                 )
-        # If mode is 'model', model must be a function
-        if self.mode == "model" and not callable(self.model):
-            raise ValueError('If mode is "model", model must be a function')
         # If mode is flexible or vectorized, a transition function must be provided
         if self.mode in ["flexible", "vectorized"] and not callable(
             self.transition_function
@@ -438,8 +442,13 @@ class TimeAugmentedMDP:
         rewards = []
 
         for a in self.actions:
+                            
             # Filter down to the subset of df with action a
-            df_a = self.state_space_data.filter(pl.col("a") == a)
+            df_a = (
+                self
+                .state_space_data
+                .filter(pl.col("a") == a)                
+            )
 
             if self.mode == "flexible":
                 # Use the apply method to apply the transition and reward
@@ -484,16 +493,18 @@ class TimeAugmentedMDP:
             # -----------------------------------------------------------------
             # Unclear if this works until tested
             if self.mode == "model":
+                # Collect and convert to pandas
+                df_a = df_a.collect().to_pandas().copy()
 
                 X = df_a[self.model.feature_names_]
                 probabilities = self.model.predict_proba(X)
                 probabilities = np.round(probabilities, 4)
 
                 # Add a column called s_prime
-                df_a["s_prime"] = [self.states] * len(df_a)
+                df_a.loc[:, "s_prime"] = [self.states] * len(df_a)
 
                 # Add the probabilities
-                df_a["probability"] = probabilities.tolist()
+                df_a.loc[:, "probability"] = probabilities.tolist()
 
                 # Now we need to explode the probability column
                 df_a = df_a.explode(["probability", "s_prime"])
@@ -502,10 +513,11 @@ class TimeAugmentedMDP:
                 df_a = df_a.query("probability > 1e-4")
 
                 # Compute reward
-                df_a.loc[:, "reward"] = self.reward(
-                    df_a["s_prime"], df_a["s"], df_a["t"], df_a["a"]
+                df_a.loc[:, "reward"] = self.reward_function(
+                    df_a["s_prime"], df_a["s"], df_a["a"], df_a["t"]
                 )
 
+                df_a = pl.DataFrame(df_a).lazy()
             # -----------------------------------------------------------------
             # Add a columns t_prime which is t + 1
             df_a = df_a.with_columns([
@@ -520,11 +532,13 @@ class TimeAugmentedMDP:
 
             transitions.append(P)
             rewards.append(R)
+           
 
         self.transition_matrices = transitions
         self.reward_matrices = rewards
 
         return None
+
 
     def _enforce_valid_matrices(self):
         """
@@ -811,5 +825,41 @@ class TimeAugmentedMDP:
             y_labels = ax.get_yticks()
             ax.set_xticks(x_labels[:: max(1, len(x_labels) // max_labels)])
             ax.set_yticks(y_labels[:: max(1, len(y_labels) // max_labels)])
+
+        return None
+
+    def enforce_monotonicity(
+        self,
+        value_increasing: bool = True,
+        policy_increasing: bool = True,
+        ):
+        """
+        Use isotonic regression to enforce monotonicity of the value function
+        """
+
+        value_ir = IsotonicRegression(increasing=value_increasing)
+        value_monotone = {}
+
+        for t in self.value_function.keys():
+            X = list(self.value_function[t].keys())
+            y = list(self.value_function[t].values())
+            y_monotone = value_ir.fit_transform(X, y)
+
+            value_monotone[t] = dict(zip(X, y_monotone))
+
+        self.value_monotone = value_monotone
+
+        # Policy
+        policy_ir = IsotonicRegression(increasing=policy_increasing)
+        policy_monotone = {}
+
+        for t in self.policy_function.keys():
+            X = list(self.policy_function[t].keys())
+            y = list(self.policy_function[t].values())
+            y_monotone = policy_ir.fit_transform(X, y)
+
+            policy_monotone[t] = dict(zip(X, y_monotone))
+
+        self.policy_monotone = policy_monotone
 
         return None
