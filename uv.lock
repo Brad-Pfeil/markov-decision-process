@@ -400,19 +400,19 @@ version = "1.0.0a0"
 source = { editable = "." }
 dependencies = [
     { name = "catboost" },
+    { name = "matplotlib" },
     { name = "pandas" },
     { name = "polars" },
     { name = "pymdptoolbox" },
     { name = "rich" },
     { name = "scikit-learn" },
     { name = "scipy" },
+    { name = "seaborn" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "ipykernel" },
-    { name = "matplotlib" },
-    { name = "seaborn" },
 ]
 test = [
     { name = "pytest" },
@@ -421,20 +421,18 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "catboost", specifier = ">=1.2.7" },
+    { name = "matplotlib", specifier = ">=3.10.1" },
     { name = "pandas", specifier = ">=2.2.3" },
     { name = "polars", specifier = ">=1.24.0" },
     { name = "pymdptoolbox", specifier = ">=4.0b3" },
     { name = "rich", specifier = ">=13.9.4" },
     { name = "scikit-learn", specifier = ">=1.6.1" },
     { name = "scipy", specifier = ">=1.15.2" },
+    { name = "seaborn", specifier = ">=0.13.2" },
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "ipykernel", specifier = ">=6.29.5" },
-    { name = "matplotlib", specifier = ">=3.10.1" },
-    { name = "seaborn", specifier = ">=0.13.2" },
-]
+dev = [{ name = "ipykernel", specifier = ">=6.29.5" }]
 test = [{ name = "pytest", specifier = ">=8.3.5" }]
 
 [[package]]

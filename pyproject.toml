@@ -9,12 +9,14 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "catboost>=1.2.7",
+    "matplotlib>=3.10.1",
     "pandas>=2.2.3",
     "polars>=1.24.0",
     "pymdptoolbox>=4.0b3",
     "rich>=13.9.4",
     "scikit-learn>=1.6.1",
     "scipy>=1.15.2",
+    "seaborn>=0.13.2",
 ]
 
 [build-system]
@@ -24,8 +26,6 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "ipykernel>=6.29.5",
-    "matplotlib>=3.10.1",
-    "seaborn>=0.13.2",
 ]
 test = [
     "pytest>=8.3.5",
