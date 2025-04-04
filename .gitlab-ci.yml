@@ -1,0 +1,112 @@
+stages:
+  - Version
+  - Tag
+  - Build
+  - Release
+
+variables:
+  PYTHON_VERSION: "3.12"
+  UV_VERSION: "0.6.12"
+  BASE_LAYER: bookworm-slim
+  IMAGE: ghcr.io/astral-sh/uv:$UV_VERSION-python$PYTHON_VERSION-$BASE_LAYER
+  UV_LINK_MODE: copy
+  UV_PUBLISH_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/pypi"
+  UV_PUBLISH_USERNAME: "gitlab-ci-token"
+  UV_PUBLISH_PASSWORD: "${CI_JOB_TOKEN}"
+  COMPONENT_VERSION_FILE: pyproject.toml
+
+# GET VERSION
+.version:
+  get-version:
+    # GET BASE VERSION
+    - VERSION=$(uvx --from=toml-cli toml get --toml-path=$COMPONENT_VERSION_FILE project.version)
+    - echo "VERSION = $VERSION"
+
+Version Check:
+  stage: Version
+  image: $IMAGE
+  before_script:
+    - set -e
+    - apt update && apt install -y bash git
+  script:
+    # GET VERSION
+    - !reference [ .version, get-version ]
+    - echo "Starting version check..."
+    # CHECK FOR VERSIONING REQUIREMENTS
+    - |
+      if [[ "$CI_COMMIT_BRANCH" == "$CI_DEFAULT_BRANCH" ]]; then
+        if [[ "$VERSION" == *"a"* || "$VERSION" == *"b"* ]]; then
+            echo "VERSION CANNOT BE ALPHA OR BETA ON MAIN BRANCH! EXITING."
+            exit 1
+        else
+            echo "VERSION IS A MAJOR OR MINOR VERSION."
+        fi
+      else
+        if [[ "$VERSION" == *"a"* || "$VERSION" == *"b"* ]]; then
+            echo "VERSION IS ALPHA OR BETA."
+        else
+            echo "VERSION IS NOT ALPHA OR BETA! YOU MUST ADD A 'a' OR 'b' TO THE VERSION. UNLESS YOU'RE ABOUT TO MERGE TO MAIN. EXITING."
+            exit 1
+        fi
+      fi
+    - echo "VERSION CHECK PASSED CONTINUING..."
+
+Tag Check:
+  stage: Tag
+  image: $IMAGE
+  # Needs either branch check or main check to run
+  needs:
+    - ["Version Check"]
+  before_script:
+    - set -e
+    - apt update && apt install -y bash git
+  script:
+    # GET VERSION
+    - !reference [ .version, get-version ]
+    - echo "Starting tag check..."
+    - |
+      if [ -n "$(git tag -l "$VERSION")" ]; then
+        echo "TAG EXISTS CONTINUING."
+      else
+        echo "TAG DOES NOT EXIST! PLEASE CREATE ONE FOR $VERSION IF YOU WISH TO BUILD."
+        exit 1
+      fi
+
+Build:
+  stage: Build
+  variables:
+    UV_CACHE_DIR: .uv-cache
+  cache:
+    - key:
+        files:
+          - uv.lock
+      paths:
+        - $UV_CACHE_DIR
+  image: $IMAGE
+  # Needs tag check
+  needs:
+    - ["Tag Check"]
+  script:
+    # GET VERSION
+    - !reference [ .version, get-version ]
+    - echo "Starting build for $VERSION..."
+    # Build the package.
+    - uv build
+    # Publish the built package (wheel) to GitLab’s Package Registry.
+    - uv publish dist/*.whl
+    # Clean up the build cache.
+    - uv cache prune --ci
+  when: manual # Run this job manually
+
+Release:
+  stage: Release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs: ["Build"] # Only run this stage when the build stage is successful
+  script:
+    - echo "Releasing $VERSION"
+  release:
+    tag_name: '$CI_COMMIT_TAG'
+    description: '$CI_COMMIT_TAG'
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH # Run this job when main is updated
+  when: manual # Run this job manually

@@ -1,6 +1,6 @@
 [project]
 name = "markov-decision-process"
-version = "1.0.0-a2"
+version = "1.0.1"
 description = "Library for solving time-augmented markov decision processes."
 readme = "README.md"
 authors = [
