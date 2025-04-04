@@ -30,10 +30,19 @@ Version Check:
   script:
     # GET VERSION
     - !reference [ .version, get-version ]
+    # GET TAG
+    - TAG=$CI_COMMIT_TAG
+    - echo "TAG = $TAG"
+    # GET MAIN BRANCH
+    - MAIN_BRANCH=$CI_DEFAULT_BRANCH
+    - echo "MAIN BRANCH = $MAIN_BRANCH"
+    # GET COMMIT BRANCH
+    - COMMIT_BRANCH=$CI_COMMIT_BRANCH
+    - echo "COMMIT BRANCH = $COMMIT_BRANCH"
     - echo "Starting version check..."
     # CHECK VERSION = CI_COMMIT_TAG
     - |
-      if [[ "$VERSION" == "$CI_COMMIT_TAG" ]]; then
+      if [[ "$VERSION" == "$TAG" ]]; then
         echo "VERSION ON COMMIT MATCHES TAG."
       else
         echo "VERSION ON COMMIT DOES NOT MATCH TAG! EXITING."
@@ -41,7 +50,8 @@ Version Check:
       fi
     # CHECK FOR VERSIONING REQUIREMENTS
     - |
-      if [[ "$CI_COMMIT_BRANCH" == "$CI_DEFAULT_BRANCH" ]]; then
+      if [[ "$COMMIT_BRANCH" == "$MAIN_BRANCH" ]]; then
+        echo "VERSION CHECKING ON MAIN BRANCH..."
         if [[ "$VERSION" == *"a"* || "$VERSION" == *"b"* ]]; then
             echo "VERSION CANNOT BE ALPHA OR BETA ON MAIN BRANCH! EXITING."
             exit 1
@@ -49,14 +59,15 @@ Version Check:
             echo "VERSION IS A MAJOR OR MINOR VERSION."
         fi
       else
+        echo "VERSION CHECKING ON OTHER BRANCH..."
         if [[ "$VERSION" == *"a"* || "$VERSION" == *"b"* ]]; then
             echo "VERSION IS ALPHA OR BETA."
         else
-            echo "VERSION IS NOT ALPHA OR BETA! YOU MUST ADD A 'a' OR 'b' TO THE VERSION. UNLESS YOU'RE ABOUT TO MERGE TO MAIN. EXITING."
+            echo "VERSION IS NOT ALPHA OR BETA! YOU MUST ADD A 'a' OR 'b' TO THE VERSION. EXITING."
             exit 1
         fi
       fi
-    - echo "VERSION CHECK PASSED CONTINUING..."
+    - echo "VERSION CHECK PASSED!"
   # ONLY RUN WHEN TAG CREATED
   rules:
     - if: $CI_COMMIT_TAG
