@@ -1,6 +1,5 @@
 stages:
   - Version
-  - Tag
   - Build
   - Release
 
@@ -32,6 +31,14 @@ Version Check:
     # GET VERSION
     - !reference [ .version, get-version ]
     - echo "Starting version check..."
+    # CHECK VERSION = CI_COMMIT_TAG
+    - |
+      if [[ "$VERSION" == "$CI_COMMIT_TAG" ]]; then
+        echo "VERSION ON COMMIT MATCHES TAG."
+      else
+        echo "VERSION ON COMMIT DOES NOT MATCH TAG! EXITING."
+        exit 1
+      fi
     # CHECK FOR VERSIONING REQUIREMENTS
     - |
       if [[ "$CI_COMMIT_BRANCH" == "$CI_DEFAULT_BRANCH" ]]; then
@@ -50,27 +57,9 @@ Version Check:
         fi
       fi
     - echo "VERSION CHECK PASSED CONTINUING..."
-
-Tag Check:
-  stage: Tag
-  image: $IMAGE
-  # Needs either branch check or main check to run
-  needs:
-    - ["Version Check"]
-  before_script:
-    - set -e
-    - apt update && apt install -y bash git
-  script:
-    # GET VERSION
-    - !reference [ .version, get-version ]
-    - echo "Starting tag check..."
-    - |
-      if [ -n "$(git tag -l "$VERSION")" ]; then
-        echo "TAG EXISTS CONTINUING."
-      else
-        echo "TAG DOES NOT EXIST! PLEASE CREATE ONE FOR $VERSION IF YOU WISH TO BUILD."
-        exit 1
-      fi
+  # ONLY RUN WHEN TAG CREATED
+  rules:
+    - if: $CI_COMMIT_TAG
 
 Build:
   stage: Build
@@ -83,30 +72,34 @@ Build:
       paths:
         - $UV_CACHE_DIR
   image: $IMAGE
-  # Needs tag check
+  # Needs version check to be successful
   needs:
-    - ["Tag Check"]
+    - "Version Check"
   script:
     # GET VERSION
     - !reference [ .version, get-version ]
     - echo "Starting build for $VERSION..."
-    # Build the package.
     - uv build
-    # Publish the built package (wheel) to GitLab’s Package Registry.
     - uv publish dist/*.whl
-    # Clean up the build cache.
     - uv cache prune --ci
+  # ONLY RUN WHEN TAG CREATED
+  rules:
+    - if: $CI_COMMIT_TAG
   when: manual # Run this job manually
+
 
 Release:
   stage: Release
   image: registry.gitlab.com/gitlab-org/release-cli:latest
-  needs: ["Build"] # Only run this stage when the build stage is successful
+  # Needs build to be successful
+  needs:
+    - "Build"
   script:
     - echo "Releasing $VERSION"
   release:
     tag_name: '$CI_COMMIT_TAG'
     description: '$CI_COMMIT_TAG'
+  # ONLY RUN WHEN TAG CREATED ON MAIN BRANCH
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH # Run this job when main is updated
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_TAG
   when: manual # Run this job manually
