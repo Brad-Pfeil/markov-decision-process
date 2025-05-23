@@ -59,8 +59,8 @@ class TimeAugmentedMDP:
         # Value and policy functions
         self.value_function: dict[int, dict[int, float]] | None = None
         self.policy_function: dict[int, dict[int, int]] | None = None
-        
-        # The policy above will be filtered down to a dictionary of 
+
+        # The policy above will be filtered down to a dictionary of
         # feasible states and times. This will be the full policy
         # across augmented states.
         self.policy_function_augmented = None
@@ -95,7 +95,7 @@ class TimeAugmentedMDP:
         )
 
         # ---------------------------------------------------------------------
-        
+
         # Generate the state space data
         self.state_space_data = self.__generate_state_space_data()
 
@@ -114,12 +114,9 @@ class TimeAugmentedMDP:
             )
         # States must be integers, floats, or strings
         if not all(
-            isinstance(state, (int, float, str))
-            for state in self.states
+            isinstance(state, (int, float, str)) for state in self.states
         ):
-            raise ValueError(
-                "States must be integers, floats, strings"
-            )
+            raise ValueError("States must be integers, floats, strings")
 
         # Same for actions
         if not self.actions:
@@ -132,12 +129,9 @@ class TimeAugmentedMDP:
                 "Actions must be a list where all elements are of the same type"
             )
         if not all(
-            isinstance(action, (int, float, str))
-            for action in self.actions
+            isinstance(action, (int, float, str)) for action in self.actions
         ):
-            raise ValueError(
-                "Actions must be integers, floats, strings"
-            )
+            raise ValueError("Actions must be integers, floats, strings")
 
         # Times must be integers
         if not all(isinstance(time, int) for time in self.times):
@@ -447,13 +441,8 @@ class TimeAugmentedMDP:
         rewards = []
 
         for a in self.actions:
-                            
             # Filter down to the subset of df with action a
-            df_a = (
-                self
-                .state_space_data
-                .filter(pl.col("a") == a)                
-            )
+            df_a = self.state_space_data.filter(pl.col("a") == a)
 
             if self.mode == "flexible":
                 # Use the apply method to apply the transition and reward
@@ -464,7 +453,7 @@ class TimeAugmentedMDP:
                         .map_elements(
                             lambda row: self.transition_function(
                                 row["s_prime"], row["s"], row["a"], row["t"]
-                        ),
+                            ),
                             return_dtype=pl.Float32,
                         )
                         .alias("probability"),
@@ -525,9 +514,7 @@ class TimeAugmentedMDP:
                 df_a = pl.DataFrame(df_a).lazy()
             # -----------------------------------------------------------------
             # Add a columns t_prime which is t + 1
-            df_a = df_a.with_columns([
-                (pl.col("t") + 1).alias("t_prime")
-            ])
+            df_a = df_a.with_columns([(pl.col("t") + 1).alias("t_prime")])
 
             # Only retain columns where t_prime <= max(times)
             df_a = df_a.filter(pl.col("t_prime") <= max(self.times))
@@ -537,13 +524,11 @@ class TimeAugmentedMDP:
 
             transitions.append(P)
             rewards.append(R)
-           
 
         self.transition_matrices = transitions
         self.reward_matrices = rewards
 
         return None
-
 
     def _enforce_valid_matrices(self):
         """
@@ -839,7 +824,7 @@ class TimeAugmentedMDP:
         value_increasing: bool = True,
         policy_increasing: bool = True,
         allowed_actions: list[float] | None = None,
-        ):
+    ):
         """
         Enforce monotonicity on the policy and value functions
         """
@@ -863,7 +848,7 @@ class TimeAugmentedMDP:
         for t in self.policy_function.keys():
             X = list(self.policy_function[t].keys())
             y = list(self.policy_function[t].values())
-            
+
             # If allowed_actions is not None or empty, use it to enforce
             # monotonicity
             if allowed_actions is not None and len(allowed_actions) > 0:
@@ -886,7 +871,7 @@ class TimeAugmentedMDP:
         current_state: int | str,
         current_time: int,
         n_steps: int,
-        action: int | str = 'optimal',
+        action: int | str = "optimal",
     ):
         """
         Produce a forceast from the current state and time for the future
@@ -899,7 +884,7 @@ class TimeAugmentedMDP:
         )
 
         # CHeck that action is either 'optimal' or a valid action
-        assert action in self.actions or action == 'optimal', (
+        assert action in self.actions or action == "optimal", (
             "Action must be either a valid action or 'optimal'"
         )
 
@@ -916,34 +901,39 @@ class TimeAugmentedMDP:
 
         # Get the augmented policy function.
         policy = self.policy_function_augmented
-        
+
         # Every column of the policy is identical, so we can just take the first
         # column.
         policy = policy[:, 0]
 
-        # Construct a transition matrix where each row is taken from the 
+        # Construct a transition matrix where each row is taken from the
         # transition matrix of the action from the policy.
         # That is, if the 0th entry of the policy is 1, we take the 0th
         # row of the transition matrix for action 1.
         # The resulting transition matrix is a square matrix of size
         # len(S_augmented) x len(S_augmented).
-        if action == 'optimal':
-            T = np.zeros((len(self.states_augmented), len(self.states_augmented)))
+        if action == "optimal":
+            T = np.zeros(
+                (len(self.states_augmented), len(self.states_augmented))
+            )
 
             for state_ix, action_ix in enumerate(policy):
-                T[state_ix, :] = self.transition_matrices[action_ix][state_ix, :].toarray().flatten()
+                T[state_ix, :] = (
+                    self.transition_matrices[action_ix][state_ix, :]
+                    .toarray()
+                    .flatten()
+                )
                 # Make T sparse
                 T = csr_matrix(T)
         else:
             T = self.transition_matrices[self.actions.index(action)]
-            
 
-        # The output is a dictionary where the keys are the future times and 
+        # The output is a dictionary where the keys are the future times and
         # the values are the forecasted states and their probabilities.
-        
+
         # Forecast the future states according to s_transpose * T^n
         forecast = current_state_vector @ T**n_steps
-        
+
         # What are the indices of the states with time index current_time + n_steps?
         future_states_ix = [
             k
@@ -955,6 +945,8 @@ class TimeAugmentedMDP:
         forecast = forecast[0, future_states_ix]
 
         # Pull out the state labels
-        future_states = [self.states_augmented[ix][0] for ix in future_states_ix]
-     
+        future_states = [
+            self.states_augmented[ix][0] for ix in future_states_ix
+        ]
+
         return future_states, forecast

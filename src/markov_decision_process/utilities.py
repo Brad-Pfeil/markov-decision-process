@@ -69,18 +69,16 @@ def monotonic_discrete_fit(
     x: np.ndarray,
     allowed_actions: list[float] | np.ndarray,
     increasing: bool = True,
-    ):
+):
     """
-    Take a sequence of values and enforce monotonicity on them, either 
+    Take a sequence of values and enforce monotonicity on them, either
     increasing or decreasing, choosing only from a set of allowed values.
     """
 
-    # Allowed values must not be None or empty. If it is, throw an error and recommend 
+    # Allowed values must not be None or empty. If it is, throw an error and recommend
     # using the non-discrete fit.
     if allowed_actions is None or len(allowed_actions) == 0:
-        raise ValueError(
-            "Allowed values must not be None or empty"
-        )
+        raise ValueError("Allowed values must not be None or empty")
 
     n = len(x)
     allowed_actions = sorted(allowed_actions)
