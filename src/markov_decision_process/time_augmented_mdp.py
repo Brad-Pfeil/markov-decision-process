@@ -17,7 +17,7 @@ from mdptoolbox.mdp import FiniteHorizon
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-import time
+from .utilities import monotonic_discrete_fit
 
 import inspect
 import copy
@@ -838,9 +838,10 @@ class TimeAugmentedMDP:
         self,
         value_increasing: bool = True,
         policy_increasing: bool = True,
+        allowed_actions: list[float] | None = None,
         ):
         """
-        Use isotonic regression to enforce monotonicity of the value function
+        Enforce monotonicity on the policy and value functions
         """
 
         value_ir = IsotonicRegression(increasing=value_increasing)
@@ -862,7 +863,17 @@ class TimeAugmentedMDP:
         for t in self.policy_function.keys():
             X = list(self.policy_function[t].keys())
             y = list(self.policy_function[t].values())
-            y_monotone = policy_ir.fit_transform(X, y)
+            
+            # If allowed_actions is not None or empty, use it to enforce
+            # monotonicity
+            if allowed_actions is not None and len(allowed_actions) > 0:
+                y_monotone = monotonic_discrete_fit(
+                    y,
+                    allowed_actions=allowed_actions,
+                    increasing=policy_increasing,
+                )
+            else:
+                y_monotone = policy_ir.fit_transform(X, y)
 
             policy_monotone[t] = dict(zip(X, y_monotone))
 

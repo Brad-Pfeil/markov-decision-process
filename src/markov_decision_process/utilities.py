@@ -63,3 +63,63 @@ def discretize_normal(
         ) - norm.cdf(boundaries[i], loc=mean, scale=std)
 
     return probabilities
+
+
+def monotonic_discrete_fit(
+    x: np.ndarray,
+    allowed_actions: list[float] | np.ndarray,
+    increasing: bool = True,
+    ):
+    """
+    Take a sequence of values and enforce monotonicity on them, either 
+    increasing or decreasing, choosing only from a set of allowed values.
+    """
+
+    # Allowed values must not be None or empty. If it is, throw an error and recommend 
+    # using the non-discrete fit.
+    if allowed_actions is None or len(allowed_actions) == 0:
+        raise ValueError(
+            "Allowed values must not be None or empty"
+        )
+
+    n = len(x)
+    allowed_actions = sorted(allowed_actions)
+    k = len(allowed_actions)
+
+    # Initialize DP tables
+    dp = np.full((n, k), np.inf)
+    path = np.zeros((n, k), dtype=int)
+
+    # First row: cost of choosing any allowed value
+    for j in range(k):
+        dp[0][j] = (x[0] - allowed_actions[j]) ** 2
+
+    # Fill DP table
+    for i in range(1, n):
+        for j in range(k):
+            if increasing:
+                # Ensure non-decreasing: allowed_actions[l] <= allowed_actions[j]
+                for l in range(j + 1):
+                    cost = dp[i - 1][l] + (x[i] - allowed_actions[j]) ** 2
+                    if cost < dp[i][j]:
+                        dp[i][j] = cost
+                        path[i][j] = l
+            else:
+                # Ensure non-increasing: allowed_actions[l] >= allowed_actions[j]
+                for l in range(j, k):
+                    cost = dp[i - 1][l] + (x[i] - allowed_actions[j]) ** 2
+                    if cost < dp[i][j]:
+                        dp[i][j] = cost
+                        path[i][j] = l
+
+    # Find best endpoint
+    end_idx = np.argmin(dp[-1])
+    result = [0] * n
+    result[-1] = allowed_actions[end_idx]
+
+    # Backtrack
+    for i in reversed(range(1, n)):
+        end_idx = path[i][end_idx]
+        result[i - 1] = allowed_actions[end_idx]
+
+    return result
