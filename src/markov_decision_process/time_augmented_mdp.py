@@ -800,7 +800,7 @@ class TimeAugmentedMDP:
             annot=annotate,
             linewidths=0.5,
             linecolor="black",
-            cmap="coolwarm",
+            cmap="inferno",
             alpha=0.7,
             vmin=vmin,
             vmax=vmax,
