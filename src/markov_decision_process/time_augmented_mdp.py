@@ -6,6 +6,7 @@ import os
 from typing import Any, Callable, List, Tuple, Literal
 
 from scipy.sparse import csr_matrix
+from scipy.ndimage import gaussian_filter
 
 from sklearn import preprocessing
 from sklearn.isotonic import IsotonicRegression
@@ -41,6 +42,8 @@ class TimeAugmentedMDP:
         model: Callable | None = None,
         state_space_data_path: str | None = None,
         force_overwrite: bool = False,
+        smoothing_sigma: float | None = 1.0,
+
     ):
         # ---------------------------------------------------------------------
         # Assignment and sanity checks
@@ -521,6 +524,17 @@ class TimeAugmentedMDP:
 
             # Contruct the transition and reward matrices
             P, R = self.__build_matrix(df_a)
+
+            #-------------------------------------------------------------------
+            # Add gaussian smoothing to the transition matrix
+
+            if self.smoothing_sigma is not None:
+                # First convert to dense
+                P = P.todense()
+
+                P = gaussian_filter(P, sigma=(1,1))
+                P = preprocessing.normalize(P, norm="l1", axis=1)
+                P = csr_matrix(P)
 
             transitions.append(P)
             rewards.append(R)
