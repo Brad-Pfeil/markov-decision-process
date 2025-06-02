@@ -1,0 +1,36 @@
+.version_helpers: &version_helpers
+  - source .gitlab/scripts/version_helpers.sh
+
+.build_and_publish_package:
+  # Variables:
+  image: ${UV_IMAGE}
+  before_script:
+    # Fail fast
+    - set -euo pipefail
+    # Include version variable helper functions
+    - *version_helpers
+    # Determine if this is a release build (main branch)
+    - RELEASE=$([ "${CI_COMMIT_BRANCH}" = "${CI_DEFAULT_BRANCH}" ] && echo "true" || echo "false")
+  script:
+    # Check variables
+    - echo "Building on branch ${CI_COMMIT_BRANCH} (RELEASE=${RELEASE})"
+    # Get version
+    - VERSION_VALUE=$(get_version)
+    - echo "Checking for VERSION_VALUE ${VERSION_VALUE:?EMPTY}"
+    # Set version
+    - |
+      if [ "${RELEASE}" = "true" ]; then
+        VERSION=${VERSION_VALUE}
+      else
+        VERSION=${VERSION_VALUE}+${CI_COMMIT_BRANCH}.${CI_COMMIT_SHORT_SHA}
+        echo "Overriding version to ${VERSION}"
+        uvx --from=toml-cli toml set --toml-path=pyproject.toml project.version ${VERSION}
+      fi
+    # Build
+    - echo "Starting build..."
+    - uv build --wheel --verbose
+    - echo "Finished build"
+    # Publish
+    - echo "Starting publish..."
+    - uv publish dist/*.whl
+    - echo "Finished publish"

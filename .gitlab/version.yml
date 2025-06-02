@@ -1,0 +1,27 @@
+.version_helpers: &version_helpers
+  - source .gitlab/scripts/version_helpers.sh
+
+.check_version:
+  # Variables:
+  image: ${GLAB_IMAGE}
+  before_script:
+    # Fail fast
+    - set -euo pipefail
+    # Include version variable helper functions
+    - *version_helpers
+    # GLAB Login
+    - glab auth login --hostname ${CI_SERVER_HOST} --job-token ${CI_JOB_TOKEN}
+  script:
+    # Get version
+    - VERSION_VALUE=$(get_version)
+    - echo "Checking for VERSION_VALUE ${VERSION_VALUE:?EMPTY}"
+    # Tag name
+    - TAG_NAME="${VERSION_VALUE}"
+    # Check if release exists
+    - if glab release view "${TAG_NAME}" > /dev/null 2>&1; then
+        echo "Release ${TAG_NAME} already exists.";
+        echo "You've made changes relative to ${CI_DEFAULT_BRANCH}. Please update the version in pyproject.toml.";
+        exit 1;
+      else
+        echo "Release ${TAG_NAME} does not exist. OK.";
+      fi

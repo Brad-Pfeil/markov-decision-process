@@ -1,8 +1,3 @@
-# Release
-
-1. Create a tag for the version: https://docs.gitlab.com/user/project/repository/tags/ (the version must match the `pyproject.toml`)
-2. Follow pipeline steps.
-
 # Markov Decision Processes
 
 This is a package for solving MDPs. We leverage the existing MDPToolbox, but add a bit more functionality that we need.

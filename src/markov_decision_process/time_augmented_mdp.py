@@ -209,7 +209,7 @@ class TimeAugmentedMDP:
                 return True
             else:
                 return False
-        except Exception as e:
+        except Exception:
             # If an exception occurs, it's likely not vectorized
             return False
 

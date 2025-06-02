@@ -1,89 +1,155 @@
-stages:
-  - Version
-  - Build
-  - Release
+include: '.gitlab/**.yml'
 
+.version_helpers: &version_helpers
+  - source .gitlab/scripts/version_helpers.sh
+
+stages:
+- Quality
+- Version Check
+- Build
+- Release
+
+# Variables
 variables:
+  ## Other
   PYTHON_VERSION: "3.12"
   UV_VERSION: "0.6.12"
   BASE_LAYER: bookworm-slim
-  IMAGE: ghcr.io/astral-sh/uv:$UV_VERSION-python$PYTHON_VERSION-$BASE_LAYER
+  UV_IMAGE: ghcr.io/astral-sh/uv:$UV_VERSION-python$PYTHON_VERSION-$BASE_LAYER
+  RUFF_IMAGE: ghcr.io/astral-sh/ruff:0.11.5-alpine
+  GLAB_IMAGE: "${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/gitlab/glab:v1.56.0"
   UV_LINK_MODE: copy
   UV_PUBLISH_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/pypi"
   UV_PUBLISH_USERNAME: "gitlab-ci-token"
   UV_PUBLISH_PASSWORD: "${CI_JOB_TOKEN}"
   COMPONENT_VERSION_FILE: pyproject.toml
 
-# GET VERSION
-.version:
-  get-version:
-    # GET BASE VERSION
-    - VERSION=$(uvx --from=toml-cli toml get --toml-path=$COMPONENT_VERSION_FILE project.version)
-    - echo "VERSION = $VERSION"
-
-Version Check:
-  stage: Version
-  image: $IMAGE
+### Quality
+## Ruff
+.base_ruff:
+  interruptible: true
+  image:
+    name: ${RUFF_IMAGE}
   before_script:
-    - set -e
-    - apt update && apt install -y bash git
+    - cd $CI_PROJECT_DIR
+    - ruff --version
+
+ruff - Check:
+  stage: Quality
+  extends: .base_ruff
   script:
-    # GET VERSION
-    - !reference [ .version, get-version ]
-    - echo "Starting version check..."
-    # CHECK VERSION = CI_COMMIT_TAG
-    - echo "TAG = $CI_COMMIT_TAG"
+    - ruff check --output-format=gitlab > code-quality-report.json
+  allow_failure: true # Can fail for other steps to proceed.
+  artifacts:
+    reports:
+      codequality: $CI_PROJECT_DIR/code-quality-report.json
+  rules:
+    - if: $CI_COMMIT_BRANCH
+      when: always
+    - when: never
+
+ruff - Formating:
+  stage: Quality
+  extends: .base_ruff
+  script:
+    - ruff format --diff
+  allow_failure: true # Can fail for other steps to proceed.
+  rules:
+    - if: $CI_COMMIT_BRANCH
+      when: always
+    - when: never
+
+## mypy
+mypy:
+  stage: Quality
+  image: ${UV_IMAGE}
+  before_script:
+    # Fail fast
+    - set -euo pipefail
+    # Add to PATH
+    - export PATH=$PATH:$HOME/.local/bin
+    # Install mypy and mypy-gitlab-code-quality
+    - uv tool install mypy && uv tool install mypy-gitlab-code-quality
+    # Install jq
+    - apt-get update && apt-get install -y jq
+  script:
+    # Run mypy and convert to GitLab CodeQuality
+    - echo "Running mypy..."
+    - mypy . --ignore-missing-imports --disable-error-code import-untyped --output=json > mypy-out.json || true
+    - echo "Converting to GitLab CodeQuality report..."
+    - mypy-gitlab-code-quality < mypy-out.json > code-quality-report.json
+    # Fail if any errors
     - |
-      if [[ "$VERSION" == "$CI_COMMIT_TAG" ]]; then
-        echo "VERSION ON COMMIT MATCHES TAG."
-      else
-        echo "VERSION ON COMMIT DOES NOT MATCH TAG! EXITING."
+      if jq -e 'length > 0' code-quality-report.json; then
+        echo "Found errors in mypy report! Check CodeQuality or below for details:"
+        cat code-quality-report.json
         exit 1
+      else
+        echo "No errors found in mypy report!"
       fi
-    - echo "VERSION CHECK PASSED!"
-  # ONLY RUN WHEN TAG CREATED
+  allow_failure: true # Can fail for other steps to proceed.
+  artifacts:
+    when: always
+    reports:
+      codequality: code-quality-report.json
   rules:
-    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH
+      when: always
+    - when: never
 
-Build:
+## Coverage
+Unit Tests:
+  stage: Quality
+  image: ${UV_IMAGE}
+  before_script:
+    # Fail fast
+    - set -euo pipefail
+    # Add to PATH
+    - export PATH=$PATH:$HOME/.local/bin
+    # Install pytest
+    - pip install -U pytest
+    # Install coverage
+    - pip install -U coverage
+  script:
+    # Run coverage
+    - coverage run -m pytest . --junitxml=test-report.xml
+    # Generate coverage report
+    - coverage report
+    # Generate coverage xml
+    - coverage xml
+  coverage: '/TOTAL.*\s+(\d+%)$/'
+  artifacts:
+    reports:
+      junit: test-report.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+  rules:
+    - if: $CI_COMMIT_BRANCH
+      when: always
+    - when: never
+
+### Version Check
+Version:
+  stage: Version Check
+  extends: .check_version
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+### Build
+Package:
   stage: Build
-  variables:
-    UV_CACHE_DIR: .uv-cache
-  cache:
-    - key:
-        files:
-          - uv.lock
-      paths:
-        - $UV_CACHE_DIR
-  image: $IMAGE
-  # Needs version check to be successful
+  extends: .build_and_publish_package
   needs:
-    - "Version Check"
-  script:
-    # GET VERSION
-    - !reference [ .version, get-version ]
-    - echo "Starting build for $VERSION..."
-    - uv build
-    - uv publish dist/*.whl
-    - uv cache prune --ci
-  # ONLY RUN WHEN TAG CREATED
+    - job: Version
   rules:
-    - if: $CI_COMMIT_TAG
-  when: manual # Run this job manually
+    - if: $CI_COMMIT_BRANCH
 
-
+### Release
 Release:
-  stage: Release
-  image: registry.gitlab.com/gitlab-org/release-cli:latest
-  # Needs build to be successful
   needs:
-    - "Build"
-  script:
-    - echo "Releasing $VERSION"
-  release:
-    tag_name: '$CI_COMMIT_TAG'
-    description: '$CI_COMMIT_TAG_MESSAGE'
-  # ONLY RUN WHEN TAG CREATED
-  rules:
-    - if: $CI_COMMIT_TAG
-  when: manual # Run this job manually
+    - job: Package
+  stage: Release
+  extends: .release_item
+  rules: # Only when on default branch
+    - if: $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
