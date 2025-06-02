@@ -56,6 +56,8 @@ class TimeAugmentedMDP:
         self.reward_matrices: List[csr_matrix] = []
         self.INFEASIBLE = -1e8
 
+        self.discount_factor = discount_factor
+
         # Value and policy functions
         self.value_function: dict[int, dict[int, float]] | None = None
         self.policy_function: dict[int, dict[int, int]] | None = None
@@ -601,7 +603,7 @@ class TimeAugmentedMDP:
         mdp = FiniteHorizon(
             self.transition_matrices,
             self.reward_matrices,
-            1,
+            self.discount_factor,
             n,
         )
 
