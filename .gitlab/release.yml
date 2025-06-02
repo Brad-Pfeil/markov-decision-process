@@ -12,7 +12,7 @@
     - glab auth login --hostname ${CI_SERVER_HOST} --job-token ${CI_JOB_TOKEN}
   script:
     # Get version
-    - VERSION_VALUE=$(get_version")
+    - VERSION_VALUE=$(get_version)
     - echo "Checking for VERSION_VALUE ${VERSION_VALUE:?EMPTY}"
     # Tag name
     - TAG_NAME="${VERSION_VALUE}"
