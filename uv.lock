@@ -396,7 +396,7 @@ wheels = [
 
 [[package]]
 name = "markov-decision-process"
-version = "1.0.0a2"
+version = "1.0.4"
 source = { editable = "." }
 dependencies = [
     { name = "catboost" },

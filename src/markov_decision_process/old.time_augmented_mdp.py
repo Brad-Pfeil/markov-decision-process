@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from typing import Any, Callable
+from typing import Any
 
 from scipy.sparse import csr_matrix
 
