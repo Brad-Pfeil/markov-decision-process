@@ -902,31 +902,53 @@ class TimeAugmentedMDP:
         current_state_vector[0, current_state_ix] = 1
 
         # Get the augmented policy function.
+        logger.info('fetching policy function for forecasting')
         policy = self.policy_function_augmented
 
         # Every column of the policy is identical, so we can just take the first
         # column.
         policy = policy[:, 0]
+        logger.info(f'policy function shape: {policy.shape}')
 
-        # Construct a transition matrix where each row is taken from the
+    # Construct a transition matrix where each row is taken from the
         # transition matrix of the action from the policy.
         # That is, if the 0th entry of the policy is 1, we take the 0th
         # row of the transition matrix for action 1.
         # The resulting transition matrix is a square matrix of size
         # len(S_augmented) x len(S_augmented).
+        logger.info('Starting to construct transition matrix for forecasting')
         if action == "optimal":
-            T = np.zeros(
-                (len(self.states_augmented), len(self.states_augmented))
-            )
-
-            for state_ix, action_ix in enumerate(policy):
-                T[state_ix, :] = (
-                    self.transition_matrices[action_ix][state_ix, :]
-                    .toarray()
-                    .flatten()
+            if not policy.size:  # Handles case where states_augmented is empty
+                T = csr_matrix(
+                    (len(self.states_augmented), len(self.states_augmented)),
+                    dtype=float
                 )
-                # Make T sparse
-                T = csr_matrix(T)
+            else:
+                rows_for_T = []
+                for state_ix, action_index in enumerate(policy):
+                    # action_index is the optimal action for state_ix (augmented state)
+                    # self.transition_matrices[action_index] is P_a for that optimal action
+                    # We need the state_ix-th row from this P_a matrix.
+                    # Note: The row index for P_a corresponds to the global augmented state index.
+                    row = self.transition_matrices[action_index][state_ix, :]
+                    rows_for_T.append(row)
+                
+                if not rows_for_T: # Should be covered by policy.size check, but as a safeguard
+                    T = csr_matrix(
+                        (len(self.states_augmented), len(self.states_augmented)),
+                        dtype=float
+                    )
+                else:
+                    # Import vstack if not already available at the top of the file
+                    # from scipy.sparse import vstack (or ensure scipy.sparse is imported)
+                    # Assuming scipy.sparse is imported as sparse or csr_matrix and vstack are available
+                    try:
+                        from scipy.sparse import vstack
+                    except ImportError:
+                        import scipy.sparse
+                        vstack = scipy.sparse.vstack
+
+                    T = vstack(rows_for_T, format='csr')
         else:
             T = self.transition_matrices[self.actions.index(action)]
 
