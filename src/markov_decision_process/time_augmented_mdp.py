@@ -872,17 +872,18 @@ class TimeAugmentedMDP:
         self,
         current_state: int | str,
         current_time: int,
-        n_steps: int,
         action: int | str = "optimal",
     ):
         """
         Produce a forceast from the current state and time for the future
         states.
         """
+        # Check that current_state is a valid state
+        max_time = max(self.times)
 
         # First check that current_time + n_steps is less than the maximum time
-        assert current_time + n_steps < max(self.times), (
-            "Current time plus n_steps must be less than the maximum time"
+        assert current_time  < max_time, (
+            "Current time must be less than the maximum time"
         )
 
         # CHeck that action is either 'optimal' or a valid action
@@ -955,22 +956,47 @@ class TimeAugmentedMDP:
         # The output is a dictionary where the keys are the future times and
         # the values are the forecasted states and their probabilities.
 
-        # Forecast the future states according to s_transpose * T^n
-        forecast = current_state_vector @ T**n_steps
+        # Prepare the output structures
+        output_states = list(self.states) # These are the original state labels
+        output_times = list(range(current_time + 1, max_time + 1))
+        
+        probabilities_matrix = np.zeros((len(output_states), len(output_times)), dtype=float)
 
-        # What are the indices of the states with time index current_time + n_steps?
-        future_states_ix = [
-            k
-            for k, v in enumerate(self.states_augmented)
-            if v[1] == current_time + n_steps
-        ]
+        # This vector represents the probability distribution over all augmented states.
+        # It starts as the initial state vector.
+        current_augmented_distribution = current_state_vector.copy() # Should be 1 x N_augmented
 
-        # Extract the forecast for these states
-        forecast = forecast[0, future_states_ix]
+        for col_idx, target_time in enumerate(output_times):
+            # Forecast the next state distribution over augmented states
+            # current_augmented_distribution now holds the distribution for target_time
+            current_augmented_distribution = current_augmented_distribution @ T
 
-        # Pull out the state labels
-        future_states = [
-            self.states_augmented[ix][0] for ix in future_states_ix
-        ]
+            # Convert the sparse distribution to a dense array for easier element access
+            # It should be a 1xN_augmented matrix, so flatten to 1D array
+            if hasattr(current_augmented_distribution, 'toarray'):
+                dense_dist_at_target_time = current_augmented_distribution.toarray().flatten()
+            else: # Should be a NumPy array if not sparse
+                dense_dist_at_target_time = np.asarray(current_augmented_distribution).flatten()
 
-        return future_states, forecast
+            # For each original state, find its probability at target_future_time
+            for row_idx, original_state_label in enumerate(output_states):
+                # Construct the augmented state tuple for the current original state and target future time
+                augmented_state_tuple = (original_state_label, target_time)
+                
+                # Get the index of this augmented state in the full augmented state space mapping
+                augmented_idx = self.augmented_state_to_index.get(augmented_state_tuple)
+                
+                if augmented_idx is not None:
+                    # Extract the probability of being in 'original_state_label' at 'target_future_time'
+                    prob = dense_dist_at_target_time[augmented_idx]
+                    probabilities_matrix[row_idx, col_idx] = prob
+                else:
+                    # This case implies (original_state_label, target_time) is not a valid augmented state.
+                    # This might happen if target_time goes beyond the defined augmented space,
+                    # or if a state is not defined for a particular time.
+                    # For a valid forecast, augmented_idx should always be found.
+                    # Defaulting to 0, but you might want to log a warning.
+                    probabilities_matrix[row_idx, col_idx] = 0.0
+                    logger.debug(f"Augmented state {augmented_state_tuple} not found in index for forecast. Assigning P=0.")
+            
+        return output_states, output_times, probabilities_matrix
