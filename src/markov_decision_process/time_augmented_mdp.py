@@ -957,10 +957,12 @@ class TimeAugmentedMDP:
         # the values are the forecasted states and their probabilities.
 
         # Prepare the output structures
-        output_states = list(self.states) # These are the original state labels
+        output_states_labels = list(self.states) # These are the original state labels
+        # Ensure output_states_values is a numpy array for dot product
+        output_states_values = np.array(self.states, dtype=float) 
         output_times = list(range(current_time + 1, max_time + 1))
         
-        probabilities_matrix = np.zeros((len(output_states), len(output_times)), dtype=float)
+        probabilities_matrix = np.zeros((len(output_states_labels), len(output_times)), dtype=float)
 
         # This vector represents the probability distribution over all augmented states.
         # It starts as the initial state vector.
@@ -979,7 +981,7 @@ class TimeAugmentedMDP:
                 dense_dist_at_target_time = np.asarray(current_augmented_distribution).flatten()
 
             # For each original state, find its probability at target_future_time
-            for row_idx, original_state_label in enumerate(output_states):
+            for row_idx, original_state_label in enumerate(output_states_labels):
                 # Construct the augmented state tuple for the current original state and target future time
                 augmented_state_tuple = (original_state_label, target_time)
                 
@@ -991,12 +993,13 @@ class TimeAugmentedMDP:
                     prob = dense_dist_at_target_time[augmented_idx]
                     probabilities_matrix[row_idx, col_idx] = prob
                 else:
-                    # This case implies (original_state_label, target_time) is not a valid augmented state.
-                    # This might happen if target_time goes beyond the defined augmented space,
-                    # or if a state is not defined for a particular time.
-                    # For a valid forecast, augmented_idx should always be found.
-                    # Defaulting to 0, but you might want to log a warning.
                     probabilities_matrix[row_idx, col_idx] = 0.0
                     logger.debug(f"Augmented state {augmented_state_tuple} not found in index for forecast. Assigning P=0.")
+        
+        # Calculate expected states for each time step
+        # probabilities_matrix is (num_states x num_times)
+        # output_states_values is (num_states,)
+        # expected_states will be (num_times,)
+        expected_states = np.dot(output_states_values, probabilities_matrix)
             
-        return output_states, output_times, probabilities_matrix
+        return output_states_labels, output_times, probabilities_matrix, expected_states
