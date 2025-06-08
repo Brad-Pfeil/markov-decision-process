@@ -872,7 +872,9 @@ class TimeAugmentedMDP:
         self,
         current_state: int | str,
         current_time: int,
-        rule: int | str | Callable = "optimal", # Changed parameter name and type
+        rule: int
+        | str
+        | Callable = "optimal",  # Changed parameter name and type
     ):
         """
         Produce a forecast from the current state and time for the future
@@ -901,7 +903,7 @@ class TimeAugmentedMDP:
             - expected_states: NumPy array (num_times,) with E[state | time].
         """
         # Check that current_state is a valid state
-        max_time = max(self.times) # This is the dummy terminal time
+        max_time = max(self.times)  # This is the dummy terminal time
 
         # First check that current_time is less than the dummy terminal time
         assert current_time < max_time, (
@@ -916,11 +918,14 @@ class TimeAugmentedMDP:
             if v[0] == current_state and v[1] == current_time
         ]
         if not current_state_ix:
-            raise ValueError(f"Initial state ({current_state}, {current_time}) not found in augmented states.")
-
+            raise ValueError(
+                f"Initial state ({current_state}, {current_time}) not found in augmented states."
+            )
 
         current_state_vector = np.zeros((1, len(self.states_augmented)))
-        current_state_vector[0, current_state_ix[0]] = 1 # Assuming unique initial augmented state
+        current_state_vector[0, current_state_ix[0]] = (
+            1  # Assuming unique initial augmented state
+        )
 
         # Ensure scipy.sparse.vstack is available (ideally imported at the top of the file)
         try:
@@ -928,24 +933,35 @@ class TimeAugmentedMDP:
         except ImportError:
             # Fallback, though scipy should be a dependency
             import scipy.sparse
+
             vstack = scipy.sparse.vstack
-            logger.warning("Dynamically importing scipy.sparse.vstack. Consider importing at module level.")
+            logger.warning(
+                "Dynamically importing scipy.sparse.vstack. Consider importing at module level."
+            )
 
         logger.info(f"Forecast called with rule: {rule}")
 
         if callable(rule):
-            logger.info('Constructing transition matrix T using custom rule function.')
+            logger.info(
+                "Constructing transition matrix T using custom rule function."
+            )
             if not self.states_augmented:
                 T = csr_matrix((0, 0), dtype=float)
             else:
-                action_indices_for_T = np.zeros(len(self.states_augmented), dtype=int)
-                for i, (s_orig, t_curr_aug) in enumerate(self.states_augmented):
+                action_indices_for_T = np.zeros(
+                    len(self.states_augmented), dtype=int
+                )
+                for i, (s_orig, t_curr_aug) in enumerate(
+                    self.states_augmented
+                ):
                     # t_curr_aug is the time component of the i-th augmented state.
                     # self.times[-1] is the dummy terminal time.
-                    if t_curr_aug == self.times[-1]: # If current augmented state is in the dummy terminal time
+                    if (
+                        t_curr_aug == self.times[-1]
+                    ):  # If current augmented state is in the dummy terminal time
                         # For dummy terminal states, transitions are typically absorbing.
                         # The P_a[i,:] row should reflect this. Pick any valid action index (e.g., 0).
-                        action_indices_for_T[i] = 0 
+                        action_indices_for_T[i] = 0
                     else:
                         action_value_from_rule = rule(s_orig, t_curr_aug)
                         if action_value_from_rule not in self.actions:
@@ -953,46 +969,84 @@ class TimeAugmentedMDP:
                                 f"Custom rule function returned action '{action_value_from_rule}' "
                                 f"for state ({s_orig},{t_curr_aug}), which is not in self.actions: {self.actions}"
                             )
-                        action_indices_for_T[i] = self.actions.index(action_value_from_rule)
-                
+                        action_indices_for_T[i] = self.actions.index(
+                            action_value_from_rule
+                        )
+
                 rows_for_T = []
-                for state_idx, determined_action_idx in enumerate(action_indices_for_T):
-                    row = self.transition_matrices[determined_action_idx][state_idx, :]
+                for state_idx, determined_action_idx in enumerate(
+                    action_indices_for_T
+                ):
+                    row = self.transition_matrices[determined_action_idx][
+                        state_idx, :
+                    ]
                     rows_for_T.append(row)
-                
-                if not rows_for_T: # Should not happen if states_augmented is not empty
-                    T = csr_matrix((len(self.states_augmented), len(self.states_augmented)), dtype=float)
+
+                if (
+                    not rows_for_T
+                ):  # Should not happen if states_augmented is not empty
+                    T = csr_matrix(
+                        (
+                            len(self.states_augmented),
+                            len(self.states_augmented),
+                        ),
+                        dtype=float,
+                    )
                 else:
-                    T = vstack(rows_for_T, format='csr')
+                    T = vstack(rows_for_T, format="csr")
 
         elif isinstance(rule, str) and rule == "optimal":
-            logger.info('Constructing transition matrix T using "optimal" policy (based on first time period).')
+            logger.info(
+                'Constructing transition matrix T using "optimal" policy (based on first time period).'
+            )
             # self.policy_function_augmented is (N_aug, N_original_times)
             # Using policy_function_augmented[:, 0] means T is fixed based on the optimal policy for the first time period.
             if self.policy_function_augmented is None:
-                raise ValueError("Optimal policy requested, but policy_function_augmented is not available. Run solve().")
-            
+                raise ValueError(
+                    "Optimal policy requested, but policy_function_augmented is not available. Run solve()."
+                )
+
             optimal_action_indices = self.policy_function_augmented[:, 0]
-            
-            if not optimal_action_indices.size and len(self.states_augmented) > 0:
-                 # This case implies states_augmented exists but policy is empty, which is unusual.
-                logger.warning("Optimal rule: states_augmented exist but optimal_action_indices is empty. Creating zero matrix T.")
-                T = csr_matrix((len(self.states_augmented), len(self.states_augmented)), dtype=float)
+
+            if (
+                not optimal_action_indices.size
+                and len(self.states_augmented) > 0
+            ):
+                # This case implies states_augmented exists but policy is empty, which is unusual.
+                logger.warning(
+                    "Optimal rule: states_augmented exist but optimal_action_indices is empty. Creating zero matrix T."
+                )
+                T = csr_matrix(
+                    (len(self.states_augmented), len(self.states_augmented)),
+                    dtype=float,
+                )
             elif not self.states_augmented:
-                T = csr_matrix((0,0), dtype=float)
+                T = csr_matrix((0, 0), dtype=float)
             else:
                 rows_for_T = []
-                for state_idx, determined_action_idx in enumerate(optimal_action_indices):
-                    row = self.transition_matrices[determined_action_idx][state_idx, :]
+                for state_idx, determined_action_idx in enumerate(
+                    optimal_action_indices
+                ):
+                    row = self.transition_matrices[determined_action_idx][
+                        state_idx, :
+                    ]
                     rows_for_T.append(row)
 
                 if not rows_for_T and len(self.states_augmented) > 0:
-                    T = csr_matrix((len(self.states_augmented), len(self.states_augmented)), dtype=float)
-                elif not rows_for_T and not len(self.states_augmented) > 0: # no states_augmented
-                    T = csr_matrix((0,0), dtype=float)
+                    T = csr_matrix(
+                        (
+                            len(self.states_augmented),
+                            len(self.states_augmented),
+                        ),
+                        dtype=float,
+                    )
+                elif (
+                    not rows_for_T and not len(self.states_augmented) > 0
+                ):  # no states_augmented
+                    T = csr_matrix((0, 0), dtype=float)
                 else:
-                    T = vstack(rows_for_T, format='csr')
-        else: # rule is a specific action value (label or index)
+                    T = vstack(rows_for_T, format="csr")
+        else:  # rule is a specific action value (label or index)
             action_to_use = None
             action_idx_to_use = -1
             try:
@@ -1000,54 +1054,85 @@ class TimeAugmentedMDP:
                 action_to_use = rule
             except ValueError:
                 if isinstance(rule, int) and 0 <= rule < len(self.actions):
-                     action_idx_to_use = rule
-                     action_to_use = self.actions[action_idx_to_use]
+                    action_idx_to_use = rule
+                    action_to_use = self.actions[action_idx_to_use]
                 else:
                     raise ValueError(
                         f"Invalid rule: '{rule}'. Must be 'optimal', a valid action value "
                         f"(one of {self.actions}), an integer index for an action, or a callable."
                     )
-            
-            logger.info(f'Using fixed transition matrix T for action: {action_to_use} (index: {action_idx_to_use})')
+
+            logger.info(
+                f"Using fixed transition matrix T for action: {action_to_use} (index: {action_idx_to_use})"
+            )
             if not self.transition_matrices:
-                raise ValueError("Transition matrices are not built. Run solve() or build_rewards_and_transitions().")
+                raise ValueError(
+                    "Transition matrices are not built. Run solve() or build_rewards_and_transitions()."
+                )
             T = self.transition_matrices[action_idx_to_use]
 
-
         # Prepare the output structures
-        output_states_labels = list(self.states) 
-        output_states_values = np.array(self.states, dtype=float) 
+        output_states_labels = list(self.states)
+        output_states_values = np.array(self.states, dtype=float)
         # Forecast up to, but not including, the dummy terminal time max_time
         # output_times are the actual future times for which probabilities are calculated.
-        output_times = list(range(current_time + 1, max_time)) # Corrected range
-        
-        if not output_times: # If current_time is the last actual decision epoch
-            logger.info("Current time is the last decision epoch. No future steps to forecast.")
-            # Return empty probabilities and expected states, but valid labels and times list
-            return output_states_labels, [], np.array([]).reshape(len(output_states_labels),0), np.array([])
+        output_times = list(
+            range(current_time + 1, max_time)
+        )  # Corrected range
 
-        probabilities_matrix = np.zeros((len(output_states_labels), len(output_times)), dtype=float)
-        current_augmented_distribution = current_state_vector.copy() 
+        if (
+            not output_times
+        ):  # If current_time is the last actual decision epoch
+            logger.info(
+                "Current time is the last decision epoch. No future steps to forecast."
+            )
+            # Return empty probabilities and expected states, but valid labels and times list
+            return (
+                output_states_labels,
+                [],
+                np.array([]).reshape(len(output_states_labels), 0),
+                np.array([]),
+            )
+
+        probabilities_matrix = np.zeros(
+            (len(output_states_labels), len(output_times)), dtype=float
+        )
+        current_augmented_distribution = current_state_vector.copy()
 
         for col_idx, target_time in enumerate(output_times):
             current_augmented_distribution = current_augmented_distribution @ T
 
-            if hasattr(current_augmented_distribution, 'toarray'):
-                dense_dist_at_target_time = current_augmented_distribution.toarray().flatten()
-            else: 
-                dense_dist_at_target_time = np.asarray(current_augmented_distribution).flatten()
+            if hasattr(current_augmented_distribution, "toarray"):
+                dense_dist_at_target_time = (
+                    current_augmented_distribution.toarray().flatten()
+                )
+            else:
+                dense_dist_at_target_time = np.asarray(
+                    current_augmented_distribution
+                ).flatten()
 
-            for row_idx, original_state_label in enumerate(output_states_labels):
+            for row_idx, original_state_label in enumerate(
+                output_states_labels
+            ):
                 augmented_state_tuple = (original_state_label, target_time)
-                augmented_idx = self.augmented_state_to_index.get(augmented_state_tuple)
-                
+                augmented_idx = self.augmented_state_to_index.get(
+                    augmented_state_tuple
+                )
+
                 if augmented_idx is not None:
                     prob = dense_dist_at_target_time[augmented_idx]
                     probabilities_matrix[row_idx, col_idx] = prob
                 else:
                     probabilities_matrix[row_idx, col_idx] = 0.0
-                    logger.debug(f"Augmented state {augmented_state_tuple} not found in index for forecast. Assigning P=0.")
-        
+                    logger.debug(
+                        f"Augmented state {augmented_state_tuple} not found in index for forecast. Assigning P=0."
+                    )
+
         expected_states = np.dot(output_states_values, probabilities_matrix)
-            
-        return output_states_labels, output_times, probabilities_matrix, expected_states
+
+        return (
+            output_states_labels,
+            output_times,
+            probabilities_matrix,
+            expected_states,
+        )
