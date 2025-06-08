@@ -494,7 +494,7 @@ class TimeAugmentedMDP:
 
                 X = df_a[self.model.feature_names_]
                 probabilities = self.model.predict_proba(X)
-                probabilities = np.round(probabilities, 4)
+                # probabilities = np.round(probabilities, 4)
 
                 # Add a column called s_prime
                 df_a.loc[:, "s_prime"] = [self.states] * len(df_a)
