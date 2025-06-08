@@ -1133,19 +1133,20 @@ class TimeAugmentedMDP:
         # Calculate expected actions for each time step
         expected_actions_trace = np.zeros(len(output_times), dtype=float)
 
-        # Helper function to get action index based on state, time, and rule
-        def _get_action_index_for_forecast(s_orig, t_curr, rule_param):
-            # For forecast, t_curr is an actual decision epoch, not the dummy terminal one.
-            # Actions are taken AT t_curr.
+        # Helper function to get action VALUE based on state, time, and rule
+        def _get_action_value_for_forecast(s_orig, t_curr, rule_param):
+            action_val_to_return = None
 
             if callable(rule_param):
-                action_label = rule_param(s_orig, t_curr)
-                if action_label not in self.actions:
+                # rule_param is a function: (original_state, time) -> action_value
+                # The returned action_value should be one of the elements in self.actions
+                action_val_from_rule = rule_param(s_orig, t_curr)
+                if action_val_from_rule not in self.actions:
                     raise ValueError(
-                        f"Action '{action_label}' from custom rule for ({s_orig}, {t_curr}) "
+                        f"Action '{action_val_from_rule}' from custom rule for ({s_orig}, {t_curr}) "
                         f"not in self.actions: {self.actions}"
                     )
-                return self.actions.index(action_label)
+                action_val_to_return = action_val_from_rule
             elif isinstance(rule_param, str) and rule_param == "optimal":
                 if self.policy_function_augmented is None:
                     raise ValueError(
@@ -1155,42 +1156,55 @@ class TimeAugmentedMDP:
                 if aug_idx is None:
                     logger.warning(
                         f"Augmented state ({s_orig}, {t_curr}) not found for optimal rule action lookup. "
-                        "Defaulting to action index 0."
+                        "Defaulting to action index 0, resulting in action value: {self.actions[0] if self.actions else None}."
                     )
-                    return 0  # Default action index
-                # The "optimal" rule for T construction uses policy_function_augmented[:, 0].
-                # This implies the action taken from (s_orig, t_curr) is determined by this policy slice.
-                return self.policy_function_augmented[aug_idx, 0]
-            else:  # rule_param is a specific action (label or index)
-                if isinstance(rule_param, int) and 0 <= rule_param < len(
-                    self.actions
-                ):
-                    return rule_param  # rule_param is already an index
-                elif rule_param in self.actions:
-                    return self.actions.index(rule_param)
+                    if not self.actions:
+                         raise ValueError("Cannot determine default action as self.actions is empty.")
+                    action_idx = 0 # Default action index
                 else:
-                    # This path should ideally not be reached if T was built with a valid fixed action.
+                    # policy_function_augmented stores action indices
+                    action_idx = self.policy_function_augmented[aug_idx, 0]
+                
+                if not (0 <= action_idx < len(self.actions)):
+                    raise IndexError(f"Optimal policy returned invalid action index {action_idx} for augmented state {aug_idx} ({s_orig}, {t_curr}).")
+                action_val_to_return = self.actions[action_idx] # Get the actual action value
+            else:  # rule_param is a specific action (either a value from self.actions or an index)
+                if rule_param in self.actions: # Check if rule_param is an actual action value
+                    action_val_to_return = rule_param
+                elif isinstance(rule_param, int) and 0 <= rule_param < len(self.actions): # Check if rule_param is an action index
+                    action_val_to_return = self.actions[rule_param]
+                else:
                     raise ValueError(
-                        f"Invalid fixed action rule encountered during expected action calculation: {rule_param}"
+                        f"Invalid fixed action rule: '{rule_param}'. Not in self.actions ({self.actions}) and not a valid index."
                     )
+            
+            # Ensure the action value is numerical for expectation
+            try:
+                return float(action_val_to_return)
+            except (ValueError, TypeError):
+                raise TypeError(
+                    f"Action value '{action_val_to_return}' for state ({s_orig}, {t_curr}) "
+                    f"with rule '{rule_param}' could not be converted to float for expectation. "
+                    f"Ensure actions in self.actions are numerical or can be cast to float. Current actions: {self.actions}"
+                )
 
         for col_idx, target_time in enumerate(output_times):
-            current_time_expected_action = 0.0
+            current_time_expected_action_value = 0.0
             for row_idx, original_state_label in enumerate(
                 output_states_labels
             ):
                 prob_s_at_t = probabilities_matrix[row_idx, col_idx]
-                if prob_s_at_t > 0:  # Only calculate if state is reachable
-                    action_idx = _get_action_index_for_forecast(
+                if prob_s_at_t > 1e-9:  # Only calculate if probability is non-negligible
+                    action_value = _get_action_value_for_forecast(
                         original_state_label, target_time, rule
                     )
-                    current_time_expected_action += prob_s_at_t * action_idx
-            expected_actions_trace[col_idx] = current_time_expected_action
+                    current_time_expected_action_value += prob_s_at_t * action_value
+            expected_actions_trace[col_idx] = current_time_expected_action_value
 
         return (
             output_states_labels,
             output_times,
             probabilities_matrix,
             expected_states,
-            expected_actions_trace,  # Added expected actions
+            expected_actions_trace,
         )
