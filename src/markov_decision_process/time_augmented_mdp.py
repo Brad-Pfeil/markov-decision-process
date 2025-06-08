@@ -1130,9 +1130,61 @@ class TimeAugmentedMDP:
 
         expected_states = np.dot(output_states_values, probabilities_matrix)
 
+        # Calculate expected actions for each time step
+        expected_actions_trace = np.zeros(len(output_times), dtype=float)
+
+        # Helper function to get action index based on state, time, and rule
+        def _get_action_index_for_forecast(s_orig, t_curr, rule_param):
+            # For forecast, t_curr is an actual decision epoch, not the dummy terminal one.
+            # Actions are taken AT t_curr.
+            
+            if callable(rule_param):
+                action_label = rule_param(s_orig, t_curr)
+                if action_label not in self.actions:
+                    raise ValueError(
+                        f"Action '{action_label}' from custom rule for ({s_orig}, {t_curr}) "
+                        f"not in self.actions: {self.actions}"
+                    )
+                return self.actions.index(action_label)
+            elif isinstance(rule_param, str) and rule_param == "optimal":
+                if self.policy_function_augmented is None:
+                    raise ValueError(
+                        "Optimal policy requested for forecast, but policy_function_augmented is not available."
+                    )
+                aug_idx = self.augmented_state_to_index.get((s_orig, t_curr))
+                if aug_idx is None:
+                    logger.warning(
+                        f"Augmented state ({s_orig}, {t_curr}) not found for optimal rule action lookup. "
+                        "Defaulting to action index 0."
+                    )
+                    return 0 # Default action index
+                # The "optimal" rule for T construction uses policy_function_augmented[:, 0].
+                # This implies the action taken from (s_orig, t_curr) is determined by this policy slice.
+                return self.policy_function_augmented[aug_idx, 0]
+            else: # rule_param is a specific action (label or index)
+                if isinstance(rule_param, int) and 0 <= rule_param < len(self.actions):
+                    return rule_param # rule_param is already an index
+                elif rule_param in self.actions:
+                    return self.actions.index(rule_param)
+                else:
+                    # This path should ideally not be reached if T was built with a valid fixed action.
+                    raise ValueError(f"Invalid fixed action rule encountered during expected action calculation: {rule_param}")
+
+        for col_idx, target_time in enumerate(output_times):
+            current_time_expected_action = 0.0
+            for row_idx, original_state_label in enumerate(output_states_labels):
+                prob_s_at_t = probabilities_matrix[row_idx, col_idx]
+                if prob_s_at_t > 0: # Only calculate if state is reachable
+                    action_idx = _get_action_index_for_forecast(
+                        original_state_label, target_time, rule
+                    )
+                    current_time_expected_action += prob_s_at_t * action_idx
+            expected_actions_trace[col_idx] = current_time_expected_action
+        
         return (
             output_states_labels,
             output_times,
             probabilities_matrix,
             expected_states,
+            expected_actions_trace, # Added expected actions
         )
