@@ -872,23 +872,40 @@ class TimeAugmentedMDP:
         self,
         current_state: int | str,
         current_time: int,
-        action: int | str = "optimal",
+        rule: int | str | Callable = "optimal", # Changed parameter name and type
     ):
         """
-        Produce a forceast from the current state and time for the future
+        Produce a forecast from the current state and time for the future
         states.
+
+        Parameters:
+        -----------
+        current_state: int | str
+            The starting state for the forecast.
+        current_time: int
+            The starting time for the forecast.
+        rule: int | str | Callable, optional
+            The rule to determine actions for constructing the transition matrix T.
+            - If an action value (from self.actions or its index): T is the fixed transition matrix for that action.
+            - If "optimal": T is constructed based on the optimal policy for the first time period (self.policy_function_augmented[:, 0]).
+            - If a callable function: The function should take (original_state, time_of_augmented_state)
+              and return an action value. T is constructed row by row based on this rule.
+            Defaults to "optimal".
+
+        Returns:
+        --------
+        tuple:
+            - output_states_labels: List of original state labels.
+            - output_times: List of future time steps in the forecast.
+            - probabilities_matrix: NumPy array (num_states x num_times) with P(state | time).
+            - expected_states: NumPy array (num_times,) with E[state | time].
         """
         # Check that current_state is a valid state
-        max_time = max(self.times)
+        max_time = max(self.times) # This is the dummy terminal time
 
-        # First check that current_time + n_steps is less than the maximum time
-        assert current_time  < max_time, (
-            "Current time must be less than the maximum time"
-        )
-
-        # CHeck that action is either 'optimal' or a valid action
-        assert action in self.actions or action == "optimal", (
-            "Action must be either a valid action or 'optimal'"
+        # First check that current_time is less than the dummy terminal time
+        assert current_time < max_time, (
+            "Current time must be less than the maximum (dummy) terminal time."
         )
 
         # Find out which of the augmented states correspond to the initial state
@@ -898,108 +915,139 @@ class TimeAugmentedMDP:
             for k, v in enumerate(self.states_augmented)
             if v[0] == current_state and v[1] == current_time
         ]
+        if not current_state_ix:
+            raise ValueError(f"Initial state ({current_state}, {current_time}) not found in augmented states.")
+
 
         current_state_vector = np.zeros((1, len(self.states_augmented)))
-        current_state_vector[0, current_state_ix] = 1
+        current_state_vector[0, current_state_ix[0]] = 1 # Assuming unique initial augmented state
 
-        # Get the augmented policy function.
-        logger.info('fetching policy function for forecasting')
-        policy = self.policy_function_augmented
+        # Ensure scipy.sparse.vstack is available (ideally imported at the top of the file)
+        try:
+            from scipy.sparse import vstack
+        except ImportError:
+            # Fallback, though scipy should be a dependency
+            import scipy.sparse
+            vstack = scipy.sparse.vstack
+            logger.warning("Dynamically importing scipy.sparse.vstack. Consider importing at module level.")
 
-        # Every column of the policy is identical, so we can just take the first
-        # column.
-        policy = policy[:, 0]
-        logger.info(f'policy function shape: {policy.shape}')
+        logger.info(f"Forecast called with rule: {rule}")
 
-    # Construct a transition matrix where each row is taken from the
-        # transition matrix of the action from the policy.
-        # That is, if the 0th entry of the policy is 1, we take the 0th
-        # row of the transition matrix for action 1.
-        # The resulting transition matrix is a square matrix of size
-        # len(S_augmented) x len(S_augmented).
-        logger.info('Starting to construct transition matrix for forecasting')
-        if action == "optimal":
-            if not policy.size:  # Handles case where states_augmented is empty
-                T = csr_matrix(
-                    (len(self.states_augmented), len(self.states_augmented)),
-                    dtype=float
-                )
+        if callable(rule):
+            logger.info('Constructing transition matrix T using custom rule function.')
+            if not self.states_augmented:
+                T = csr_matrix((0, 0), dtype=float)
             else:
+                action_indices_for_T = np.zeros(len(self.states_augmented), dtype=int)
+                for i, (s_orig, t_curr_aug) in enumerate(self.states_augmented):
+                    # t_curr_aug is the time component of the i-th augmented state.
+                    # self.times[-1] is the dummy terminal time.
+                    if t_curr_aug == self.times[-1]: # If current augmented state is in the dummy terminal time
+                        # For dummy terminal states, transitions are typically absorbing.
+                        # The P_a[i,:] row should reflect this. Pick any valid action index (e.g., 0).
+                        action_indices_for_T[i] = 0 
+                    else:
+                        action_value_from_rule = rule(s_orig, t_curr_aug)
+                        if action_value_from_rule not in self.actions:
+                            raise ValueError(
+                                f"Custom rule function returned action '{action_value_from_rule}' "
+                                f"for state ({s_orig},{t_curr_aug}), which is not in self.actions: {self.actions}"
+                            )
+                        action_indices_for_T[i] = self.actions.index(action_value_from_rule)
+                
                 rows_for_T = []
-                for state_ix, action_index in enumerate(policy):
-                    # action_index is the optimal action for state_ix (augmented state)
-                    # self.transition_matrices[action_index] is P_a for that optimal action
-                    # We need the state_ix-th row from this P_a matrix.
-                    # Note: The row index for P_a corresponds to the global augmented state index.
-                    row = self.transition_matrices[action_index][state_ix, :]
+                for state_idx, determined_action_idx in enumerate(action_indices_for_T):
+                    row = self.transition_matrices[determined_action_idx][state_idx, :]
                     rows_for_T.append(row)
                 
-                if not rows_for_T: # Should be covered by policy.size check, but as a safeguard
-                    T = csr_matrix(
-                        (len(self.states_augmented), len(self.states_augmented)),
-                        dtype=float
-                    )
+                if not rows_for_T: # Should not happen if states_augmented is not empty
+                    T = csr_matrix((len(self.states_augmented), len(self.states_augmented)), dtype=float)
                 else:
-                    # Import vstack if not already available at the top of the file
-                    # from scipy.sparse import vstack (or ensure scipy.sparse is imported)
-                    # Assuming scipy.sparse is imported as sparse or csr_matrix and vstack are available
-                    try:
-                        from scipy.sparse import vstack
-                    except ImportError:
-                        import scipy.sparse
-                        vstack = scipy.sparse.vstack
-
                     T = vstack(rows_for_T, format='csr')
-        else:
-            T = self.transition_matrices[self.actions.index(action)]
 
-        # The output is a dictionary where the keys are the future times and
-        # the values are the forecasted states and their probabilities.
+        elif isinstance(rule, str) and rule == "optimal":
+            logger.info('Constructing transition matrix T using "optimal" policy (based on first time period).')
+            # self.policy_function_augmented is (N_aug, N_original_times)
+            # Using policy_function_augmented[:, 0] means T is fixed based on the optimal policy for the first time period.
+            if self.policy_function_augmented is None:
+                raise ValueError("Optimal policy requested, but policy_function_augmented is not available. Run solve().")
+            
+            optimal_action_indices = self.policy_function_augmented[:, 0]
+            
+            if not optimal_action_indices.size and len(self.states_augmented) > 0:
+                 # This case implies states_augmented exists but policy is empty, which is unusual.
+                logger.warning("Optimal rule: states_augmented exist but optimal_action_indices is empty. Creating zero matrix T.")
+                T = csr_matrix((len(self.states_augmented), len(self.states_augmented)), dtype=float)
+            elif not self.states_augmented:
+                T = csr_matrix((0,0), dtype=float)
+            else:
+                rows_for_T = []
+                for state_idx, determined_action_idx in enumerate(optimal_action_indices):
+                    row = self.transition_matrices[determined_action_idx][state_idx, :]
+                    rows_for_T.append(row)
+
+                if not rows_for_T and len(self.states_augmented) > 0:
+                    T = csr_matrix((len(self.states_augmented), len(self.states_augmented)), dtype=float)
+                elif not rows_for_T and not len(self.states_augmented) > 0: # no states_augmented
+                    T = csr_matrix((0,0), dtype=float)
+                else:
+                    T = vstack(rows_for_T, format='csr')
+        else: # rule is a specific action value (label or index)
+            action_to_use = None
+            action_idx_to_use = -1
+            try:
+                action_idx_to_use = self.actions.index(rule)
+                action_to_use = rule
+            except ValueError:
+                if isinstance(rule, int) and 0 <= rule < len(self.actions):
+                     action_idx_to_use = rule
+                     action_to_use = self.actions[action_idx_to_use]
+                else:
+                    raise ValueError(
+                        f"Invalid rule: '{rule}'. Must be 'optimal', a valid action value "
+                        f"(one of {self.actions}), an integer index for an action, or a callable."
+                    )
+            
+            logger.info(f'Using fixed transition matrix T for action: {action_to_use} (index: {action_idx_to_use})')
+            if not self.transition_matrices:
+                raise ValueError("Transition matrices are not built. Run solve() or build_rewards_and_transitions().")
+            T = self.transition_matrices[action_idx_to_use]
+
 
         # Prepare the output structures
-        output_states_labels = list(self.states) # These are the original state labels
-        # Ensure output_states_values is a numpy array for dot product
+        output_states_labels = list(self.states) 
         output_states_values = np.array(self.states, dtype=float) 
-        output_times = list(range(current_time + 1, max_time + 1))
+        # Forecast up to, but not including, the dummy terminal time max_time
+        # output_times are the actual future times for which probabilities are calculated.
+        output_times = list(range(current_time + 1, max_time)) # Corrected range
         
-        probabilities_matrix = np.zeros((len(output_states_labels), len(output_times)), dtype=float)
+        if not output_times: # If current_time is the last actual decision epoch
+            logger.info("Current time is the last decision epoch. No future steps to forecast.")
+            # Return empty probabilities and expected states, but valid labels and times list
+            return output_states_labels, [], np.array([]).reshape(len(output_states_labels),0), np.array([])
 
-        # This vector represents the probability distribution over all augmented states.
-        # It starts as the initial state vector.
-        current_augmented_distribution = current_state_vector.copy() # Should be 1 x N_augmented
+        probabilities_matrix = np.zeros((len(output_states_labels), len(output_times)), dtype=float)
+        current_augmented_distribution = current_state_vector.copy() 
 
         for col_idx, target_time in enumerate(output_times):
-            # Forecast the next state distribution over augmented states
-            # current_augmented_distribution now holds the distribution for target_time
             current_augmented_distribution = current_augmented_distribution @ T
 
-            # Convert the sparse distribution to a dense array for easier element access
-            # It should be a 1xN_augmented matrix, so flatten to 1D array
             if hasattr(current_augmented_distribution, 'toarray'):
                 dense_dist_at_target_time = current_augmented_distribution.toarray().flatten()
-            else: # Should be a NumPy array if not sparse
+            else: 
                 dense_dist_at_target_time = np.asarray(current_augmented_distribution).flatten()
 
-            # For each original state, find its probability at target_future_time
             for row_idx, original_state_label in enumerate(output_states_labels):
-                # Construct the augmented state tuple for the current original state and target future time
                 augmented_state_tuple = (original_state_label, target_time)
-                
-                # Get the index of this augmented state in the full augmented state space mapping
                 augmented_idx = self.augmented_state_to_index.get(augmented_state_tuple)
                 
                 if augmented_idx is not None:
-                    # Extract the probability of being in 'original_state_label' at 'target_future_time'
                     prob = dense_dist_at_target_time[augmented_idx]
                     probabilities_matrix[row_idx, col_idx] = prob
                 else:
                     probabilities_matrix[row_idx, col_idx] = 0.0
                     logger.debug(f"Augmented state {augmented_state_tuple} not found in index for forecast. Assigning P=0.")
         
-        # Calculate expected states for each time step
-        # probabilities_matrix is (num_states x num_times)
-        # output_states_values is (num_states,)
-        # expected_states will be (num_times,)
         expected_states = np.dot(output_states_values, probabilities_matrix)
             
         return output_states_labels, output_times, probabilities_matrix, expected_states
