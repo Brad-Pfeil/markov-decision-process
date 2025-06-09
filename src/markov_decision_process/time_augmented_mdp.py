@@ -41,6 +41,7 @@ class TimeAugmentedMDP:
         model: Callable | None = None,
         state_space_data_path: str | None = None,
         force_overwrite: bool = False,
+        static_features: dict[str, Any] | None = None,
     ):
         # ---------------------------------------------------------------------
         # Assignment and sanity checks
@@ -324,6 +325,15 @@ class TimeAugmentedMDP:
             df = s_prime.join(s, how="cross").join(t, how="cross")
         elif self.mode == "model":
             df = s.join(t, how="cross")
+
+        # add in the static features if they are provided
+        if self.static_features is not None:
+            df = df.with_columns(
+                [
+                    pl.lit(value).alias(key)
+                    for key, value in self.static_features.items()
+                ]
+            )
 
         for action in self.actions:
             output_dir = f"{state_space_path}/a={action}"
