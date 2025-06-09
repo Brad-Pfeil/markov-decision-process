@@ -1169,25 +1169,35 @@ class TimeAugmentedMDP:
                         "Defaulting to action index 0, resulting in action value: {self.actions[0] if self.actions else None}."
                     )
                     if not self.actions:
-                         raise ValueError("Cannot determine default action as self.actions is empty.")
-                    action_idx = 0 # Default action index
+                        raise ValueError(
+                            "Cannot determine default action as self.actions is empty."
+                        )
+                    action_idx = 0  # Default action index
                 else:
                     # policy_function_augmented stores action indices
                     action_idx = self.policy_function_augmented[aug_idx, 0]
-                
+
                 if not (0 <= action_idx < len(self.actions)):
-                    raise IndexError(f"Optimal policy returned invalid action index {action_idx} for augmented state {aug_idx} ({s_orig}, {t_curr}).")
-                action_val_to_return = self.actions[action_idx] # Get the actual action value
+                    raise IndexError(
+                        f"Optimal policy returned invalid action index {action_idx} for augmented state {aug_idx} ({s_orig}, {t_curr})."
+                    )
+                action_val_to_return = self.actions[
+                    action_idx
+                ]  # Get the actual action value
             else:  # rule_param is a specific action (either a value from self.actions or an index)
-                if rule_param in self.actions: # Check if rule_param is an actual action value
+                if (
+                    rule_param in self.actions
+                ):  # Check if rule_param is an actual action value
                     action_val_to_return = rule_param
-                elif isinstance(rule_param, int) and 0 <= rule_param < len(self.actions): # Check if rule_param is an action index
+                elif isinstance(rule_param, int) and 0 <= rule_param < len(
+                    self.actions
+                ):  # Check if rule_param is an action index
                     action_val_to_return = self.actions[rule_param]
                 else:
                     raise ValueError(
                         f"Invalid fixed action rule: '{rule_param}'. Not in self.actions ({self.actions}) and not a valid index."
                     )
-            
+
             # Ensure the action value is numerical for expectation
             try:
                 return float(action_val_to_return)
@@ -1204,12 +1214,18 @@ class TimeAugmentedMDP:
                 output_states_labels
             ):
                 prob_s_at_t = probabilities_matrix[row_idx, col_idx]
-                if prob_s_at_t > 1e-9:  # Only calculate if probability is non-negligible
+                if (
+                    prob_s_at_t > 1e-9
+                ):  # Only calculate if probability is non-negligible
                     action_value = _get_action_value_for_forecast(
                         original_state_label, target_time, rule
                     )
-                    current_time_expected_action_value += prob_s_at_t * action_value
-            expected_actions_trace[col_idx] = current_time_expected_action_value
+                    current_time_expected_action_value += (
+                        prob_s_at_t * action_value
+                    )
+            expected_actions_trace[col_idx] = (
+                current_time_expected_action_value
+            )
 
         return (
             output_states_labels,
