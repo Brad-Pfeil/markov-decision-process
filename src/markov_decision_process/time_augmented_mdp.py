@@ -6,6 +6,7 @@ import os
 from typing import Any, Callable, List, Tuple, Literal
 
 from scipy.sparse import csr_matrix
+from scipy.sparse import vstack
 
 from sklearn import preprocessing
 from sklearn.isotonic import IsotonicRegression
@@ -67,6 +68,7 @@ class TimeAugmentedMDP:
         # feasible states and times. This will be the full policy
         # across augmented states.
         self.policy_function_augmented = None
+        self.policy_function_augmented_monotone = None
 
         # Augmented states
         self.states_augmented: List[Tuple] = []
@@ -876,6 +878,50 @@ class TimeAugmentedMDP:
 
         self.policy_monotone = policy_monotone
 
+        # ---------------------------------------------------------------------#
+        # Create a monotone version of the policy function augmented.
+
+        policy_function_augmented_monotone = np.zeros(
+            (len(self.states_augmented), len(self.times) - 1)
+        )
+
+        # Don't include the terminal time step
+        # We'll fill that column in later
+        # Loop over columns, then rows
+        for j, t in enumerate(self.times[:-1]):
+            for i, aug_s in enumerate(self.states_augmented):
+                # aug_s is a tuple (s, t)
+                s, t_ = aug_s
+
+                # If t == t_, we're in a vaid augmented state.
+                # Check what the policy is for that state
+
+                if t == t_:
+                    # Get the action for the state
+                    action = self.policy_monotone[t][s]
+                    # Look up the index of the action
+                    action_index = self.actions.index(action)
+
+                    # Set the value in the matrix
+                    policy_function_augmented_monotone[i, j] = action_index
+                else:
+                    # If t != t_, we're not in a valid augmented state
+                    # Set the value to -1 (or some other invalid action index)
+                    policy_function_augmented_monotone[i, j] = 0
+
+        # Now to match dimension, we need to create a copy of the first column and
+        # attach it to the front of the matrix
+        first_column = (
+            policy_function_augmented_monotone[:, 0].copy().reshape(-1, 1)
+        )
+        policy_function_augmented_monotone = np.hstack(
+            (first_column, policy_function_augmented_monotone)
+        )
+
+        self.policy_function_augmented_monotone = (
+            policy_function_augmented_monotone
+        )
+
         return None
 
     def forecast(
@@ -912,6 +958,17 @@ class TimeAugmentedMDP:
             - probabilities_matrix: NumPy array (num_states x num_times) with P(state | time).
             - expected_states: NumPy array (num_times,) with E[state | time].
         """
+
+        # ---------------------------------------------------------------------#
+        # To perform a forecast with a transition matrix T, we need an initias
+        # state s0; where s0 is a vector of zeros with a 1 in the position of the
+        # current state.
+        # To perform an n-step-ahead forecast, we compute:
+        # sn = s0 @ T^n
+        # sn gives the probability distribution over the states at time t + n.
+
+        # Construct the vector of current state
+
         # Check that current_state is a valid state
         max_time = max(self.times)  # This is the dummy terminal time
 
@@ -937,17 +994,21 @@ class TimeAugmentedMDP:
             1  # Assuming unique initial augmented state
         )
 
-        # Ensure scipy.sparse.vstack is available (ideally imported at the top of the file)
-        try:
-            from scipy.sparse import vstack
-        except ImportError:
-            # Fallback, though scipy should be a dependency
-            import scipy.sparse
+        # ---------------------------------------------------------------------#
+        # Construct the transition matrix T based on the rule provided. 'rule'
+        # in this case means a policy. That is, a mapping from (state, time) to
+        # action. Note that every row  of the augmented state space corresponds
+        # to a unique (state, time) pair. To construct T, we need to
+        # determine the action for each augmented state based on the rule.
+        # We pull out the row from the transition matrix corresponding to
+        # the action determined by the rule for that augmented state.
 
-            vstack = scipy.sparse.vstack
-            logger.warning(
-                "Dynamically importing scipy.sparse.vstack. Consider importing at module level."
-            )
+        # In the trivial case that the policy is to use the same action in
+        # all states; then this reduces to just using the transition matrix
+        # for that action.
+
+        # In general, the transition matrix will be a combination of rows from
+        # the transition matrices for each action.
 
         logger.info(f"Forecast called with rule: {rule}")
 
