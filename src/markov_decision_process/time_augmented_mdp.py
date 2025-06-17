@@ -18,7 +18,10 @@ from mdptoolbox.mdp import FiniteHorizon
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from .utilities import monotonic_discrete_fit
+from .utilities import (
+    monotonic_discrete_fit,
+    get_policy,
+)
 
 import inspect
 import copy
@@ -1162,13 +1165,14 @@ class TimeAugmentedMDP:
         expected_actions = []
         # If the rule is callable, we need to apply it to each state and time
         if callable(rule):
-            for col_idx, target_time in enumerate(output_times):
-                expected_actions_trace[col_idx] = np.mean(
-                    [
-                        rule(original_state_label, target_time)
-                        for original_state_label in output_states_labels
-                    ]
-                )
+            logger.info(
+                "Using custom rule function to determine expected actions."
+            )
+            for t, s in zip(output_times, expected_states):
+                # Apply the rule function to get the expected action
+                expected_action = rule(s, t)
+                expected_actions.append(expected_action)
+
         elif isinstance(rule, str) and rule == "optimal":
             # Use the optimal policy
 
@@ -1184,7 +1188,7 @@ class TimeAugmentedMDP:
             for t, s in zip(output_times, expected_states):
                 # Find the closest state to s in self.states
 
-                expected_actions.append(policy[t][s])
+                expected_actions.append(get_policy(t, s, policy))
 
         return (
             output_states_labels,
