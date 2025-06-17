@@ -1157,8 +1157,8 @@ class TimeAugmentedMDP:
                     )
 
         expected_states = np.dot(output_states_values, probabilities_matrix)
-       
-        #---------------------------------------------------------------------#
+
+        # ---------------------------------------------------------------------#
         expected_actions = []
         # If the rule is callable, we need to apply it to each state and time
         if callable(rule):
@@ -1170,8 +1170,8 @@ class TimeAugmentedMDP:
                     ]
                 )
         elif isinstance(rule, str) and rule == "optimal":
-            # Use the optimal policy 
-            
+            # Use the optimal policy
+
             if self.policy_monotone is not None:
                 policy = self.policy_monotone
                 logger.info(
@@ -1179,13 +1179,12 @@ class TimeAugmentedMDP:
                 )
             else:
                 policy = self.policy_function
-            
+
             # Apply the policy to get expected actions
             for t, s in zip(output_times, expected_states):
                 # Find the closest state to s in self.states
-                
-                expected_actions.append(policy[t][s])
 
+                expected_actions.append(policy[t][s])
 
         return (
             output_states_labels,
