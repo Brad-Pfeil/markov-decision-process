@@ -6,6 +6,8 @@
 import numpy as np
 import logging
 
+from typing import Sequence, Union, Dict
+
 logger = logging.getLogger(__name__)
 # ----------------------------------------------------------------------------#
 
@@ -121,3 +123,61 @@ def monotonic_discrete_fit(
         result[i - 1] = allowed_actions[end_idx]
 
     return result
+
+
+
+
+def find_closest(
+    data_list: Sequence[Union[int | float]], value_to_match: int | float
+) -> int | float:
+    """
+    Finds the element in data_list that is closest to value_to_match.
+
+    Args:
+        data_list: A list of numbers (e.g., int or float).
+        value_to_match: The number to find the closest match for.
+
+    Returns:
+        The element from data_list closest to value_to_match.
+        Returns None if data_list is empty.
+    """
+    if not data_list:
+        raise ValueError("Input list cannot be empty")
+
+    # Find the element whose absolute difference from value_to_match is smallest.
+    closest_element = min(data_list, key=lambda x: abs(x - value_to_match))
+    return closest_element
+
+
+def get_policy(t: int, s: float, policy_function: dict) -> float:
+    """
+    Apply the policy function to a row of the service data.
+    """
+
+    try:
+        # Convert the times to integers
+        times = [int(key) for key in policy_function.keys()]
+        closest_t = find_closest(times, t)
+
+        policy_for_t = policy_function[closest_t]
+    except KeyError:
+        raise ValueError(
+            f"Time {t} not found in policy function. Available times: {list(policy_function.keys())}"
+        )
+    except ValueError as e:
+        raise ValueError(f"Invalid time {t}: {e}")
+
+    try:
+        # Convert the states to floats
+        states = [float(key) for key in policy_for_t.keys()]
+        closest_s = find_closest(states, s)
+
+    except KeyError:
+        raise ValueError(
+            f"State {s} not found in policy function for time {t}. Available states: {list(policy_for_t.keys())}"
+        )
+    except ValueError as e:
+        raise ValueError(f"Invalid state {s}: {e}")
+
+    # Return the policy for the closest state
+    return policy_for_t[closest_s]
