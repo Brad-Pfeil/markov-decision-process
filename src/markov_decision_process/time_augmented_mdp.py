@@ -6,6 +6,7 @@ import os
 from typing import Any, Callable, List, Tuple, Literal
 
 from scipy.sparse import csr_matrix
+from scipy.sparse import vstack
 
 from sklearn import preprocessing
 from sklearn.isotonic import IsotonicRegression
@@ -62,6 +63,8 @@ class TimeAugmentedMDP:
         # Value and policy functions
         self.value_function: dict[int, dict[int, float]] | None = None
         self.policy_function: dict[int, dict[int, int]] | None = None
+        self.value_monotone: dict[Tuple, float] | None = None
+        self.policy_monotone: dict[int, dict[int, int]] | None = None
 
         # The policy above will be filtered down to a dictionary of
         # feasible states and times. This will be the full policy
@@ -912,6 +915,17 @@ class TimeAugmentedMDP:
             - probabilities_matrix: NumPy array (num_states x num_times) with P(state | time).
             - expected_states: NumPy array (num_times,) with E[state | time].
         """
+
+        # ---------------------------------------------------------------------#
+        # To perform a forecast with a transition matrix T, we need an initias
+        # state s0; where s0 is a vector of zeros with a 1 in the position of the
+        # current state.
+        # To perform an n-step-ahead forecast, we compute:
+        # sn = s0 @ T^n
+        # sn gives the probability distribution over the states at time t + n.
+
+        # Construct the vector of current state
+
         # Check that current_state is a valid state
         max_time = max(self.times)  # This is the dummy terminal time
 
@@ -937,17 +951,21 @@ class TimeAugmentedMDP:
             1  # Assuming unique initial augmented state
         )
 
-        # Ensure scipy.sparse.vstack is available (ideally imported at the top of the file)
-        try:
-            from scipy.sparse import vstack
-        except ImportError:
-            # Fallback, though scipy should be a dependency
-            import scipy.sparse
+        # ---------------------------------------------------------------------#
+        # Construct the transition matrix T based on the rule provided. 'rule'
+        # in this case means a policy. That is, a mapping from (state, time) to
+        # action. Note that every row  of the augmented state space corresponds
+        # to a unique (state, time) pair. To construct T, we need to
+        # determine the action for each augmented state based on the rule.
+        # We pull out the row from the transition matrix corresponding to
+        # the action determined by the rule for that augmented state.
 
-            vstack = scipy.sparse.vstack
-            logger.warning(
-                "Dynamically importing scipy.sparse.vstack. Consider importing at module level."
-            )
+        # In the trivial case that the policy is to use the same action in
+        # all states; then this reduces to just using the transition matrix
+        # for that action.
+
+        # In general, the transition matrix will be a combination of rows from
+        # the transition matrices for each action.
 
         logger.info(f"Forecast called with rule: {rule}")
 
@@ -1140,97 +1158,38 @@ class TimeAugmentedMDP:
 
         expected_states = np.dot(output_states_values, probabilities_matrix)
 
-        # Calculate expected actions for each time step
-        expected_actions_trace = np.zeros(len(output_times), dtype=float)
-
-        # Helper function to get action VALUE based on state, time, and rule
-        def _get_action_value_for_forecast(s_orig, t_curr, rule_param):
-            action_val_to_return = None
-
-            if callable(rule_param):
-                # rule_param is a function: (original_state, time) -> action_value
-                # The returned action_value should be one of the elements in self.actions
-                action_val_from_rule = rule_param(s_orig, t_curr)
-                if action_val_from_rule not in self.actions:
-                    raise ValueError(
-                        f"Action '{action_val_from_rule}' from custom rule for ({s_orig}, {t_curr}) "
-                        f"not in self.actions: {self.actions}"
-                    )
-                action_val_to_return = action_val_from_rule
-            elif isinstance(rule_param, str) and rule_param == "optimal":
-                if self.policy_function_augmented is None:
-                    raise ValueError(
-                        "Optimal policy requested for forecast, but policy_function_augmented is not available."
-                    )
-                aug_idx = self.augmented_state_to_index.get((s_orig, t_curr))
-                if aug_idx is None:
-                    logger.warning(
-                        f"Augmented state ({s_orig}, {t_curr}) not found for optimal rule action lookup. "
-                        "Defaulting to action index 0, resulting in action value: {self.actions[0] if self.actions else None}."
-                    )
-                    if not self.actions:
-                        raise ValueError(
-                            "Cannot determine default action as self.actions is empty."
-                        )
-                    action_idx = 0  # Default action index
-                else:
-                    # policy_function_augmented stores action indices
-                    action_idx = self.policy_function_augmented[aug_idx, 0]
-
-                if not (0 <= action_idx < len(self.actions)):
-                    raise IndexError(
-                        f"Optimal policy returned invalid action index {action_idx} for augmented state {aug_idx} ({s_orig}, {t_curr})."
-                    )
-                action_val_to_return = self.actions[
-                    action_idx
-                ]  # Get the actual action value
-            else:  # rule_param is a specific action (either a value from self.actions or an index)
-                if (
-                    rule_param in self.actions
-                ):  # Check if rule_param is an actual action value
-                    action_val_to_return = rule_param
-                elif isinstance(rule_param, int) and 0 <= rule_param < len(
-                    self.actions
-                ):  # Check if rule_param is an action index
-                    action_val_to_return = self.actions[rule_param]
-                else:
-                    raise ValueError(
-                        f"Invalid fixed action rule: '{rule_param}'. Not in self.actions ({self.actions}) and not a valid index."
-                    )
-
-            # Ensure the action value is numerical for expectation
-            try:
-                return float(action_val_to_return)
-            except (ValueError, TypeError):
-                raise TypeError(
-                    f"Action value '{action_val_to_return}' for state ({s_orig}, {t_curr}) "
-                    f"with rule '{rule_param}' could not be converted to float for expectation. "
-                    f"Ensure actions in self.actions are numerical or can be cast to float. Current actions: {self.actions}"
+        # ---------------------------------------------------------------------#
+        expected_actions = []
+        # If the rule is callable, we need to apply it to each state and time
+        if callable(rule):
+            for col_idx, target_time in enumerate(output_times):
+                expected_actions_trace[col_idx] = np.mean(
+                    [
+                        rule(original_state_label, target_time)
+                        for original_state_label in output_states_labels
+                    ]
                 )
+        elif isinstance(rule, str) and rule == "optimal":
+            # Use the optimal policy
 
-        for col_idx, target_time in enumerate(output_times):
-            current_time_expected_action_value = 0.0
-            for row_idx, original_state_label in enumerate(
-                output_states_labels
-            ):
-                prob_s_at_t = probabilities_matrix[row_idx, col_idx]
-                if (
-                    prob_s_at_t > 1e-9
-                ):  # Only calculate if probability is non-negligible
-                    action_value = _get_action_value_for_forecast(
-                        original_state_label, target_time, rule
-                    )
-                    current_time_expected_action_value += (
-                        prob_s_at_t * action_value
-                    )
-            expected_actions_trace[col_idx] = (
-                current_time_expected_action_value
-            )
+            if self.policy_monotone is not None:
+                policy = self.policy_monotone
+                logger.info(
+                    "Using monotone policy for expected actions trace."
+                )
+            else:
+                policy = self.policy_function
+
+            # Apply the policy to get expected actions
+            for t, s in zip(output_times, expected_states):
+                # Find the closest state to s in self.states
+
+                expected_actions.append(policy[t][s])
 
         return (
             output_states_labels,
             output_times,
             probabilities_matrix,
             expected_states,
-            expected_actions_trace,
+            expected_actions,
         )
