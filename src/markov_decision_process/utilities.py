@@ -125,8 +125,6 @@ def monotonic_discrete_fit(
     return result
 
 
-
-
 def find_closest(
     data_list: Sequence[Union[int | float]], value_to_match: int | float
 ) -> int | float:

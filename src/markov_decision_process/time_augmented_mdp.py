@@ -1172,7 +1172,7 @@ class TimeAugmentedMDP:
                 # Apply the rule function to get the expected action
                 expected_action = rule(s, t)
                 expected_actions.append(expected_action)
-            
+
         elif isinstance(rule, str) and rule == "optimal":
             # Use the optimal policy
 
