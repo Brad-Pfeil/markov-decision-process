@@ -77,6 +77,16 @@ def monotonic_discrete_fit(
     increasing or decreasing, choosing only from a set of allowed values.
     """
 
+    # Danger! Danger! Stupid hack!
+    # If increasing is True, make it so that the last element is greater than or equal to the second-to-last element.
+    # If increasing is False, make it so that the first is greater than or equal to the second element.
+    if increasing:
+        if x[-1] < x[-2]:
+            x[-1] = x[-2]
+    else:
+        if x[0] < x[1]:
+            x[0] = x[1]
+
     # Allowed values must not be None or empty. If it is, throw an error and recommend
     # using the non-discrete fit.
     if allowed_actions is None or len(allowed_actions) == 0:
