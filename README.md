@@ -44,7 +44,13 @@ We suppose that there are a set of static covariates, $X$, that affect the deman
 For states $s_{t}, s_{t+1} \in S$, our Bellman equation is
 
 
-$$ V(s_{t}) = \max_{p_{t}} \left\{ \sum_{s_{t+1}} \left( p_{t}(c_{t} - c_{t+1}) + \gamma V(s_{t+1}) \right)\, \mathbb{P}\left(s_{t+1} \mid s_{t}, p_{t}, t, X\right) \right\} $$
+$$
+V(s_t) = \max_{p_t} \{
+\sum_{s_{t+1}}
+\mathbb{P}(s_{t+1} \mid s_t, p_t, t, X)
+\left ( p_t (c_t - c_{t+1}) + \gamma V(s_{t+1}) \right)
+\}
+$$
 
 
 
